@@ -187,6 +187,44 @@ def krd(i, d, val=1, inv=False):
         krdelta[i] = 0
     return krdelta
 
+def trac2grid(tracs, tracvals, grid, gridfield, NX, DIM):
+    # IDW
+
+    for idx in itertools.product(*(range(0,i) for i in NX[0:DIM])):
+        distsq = np.sum(np.array([tracs[:,d] - grid[d][idx] for d in range(DIM)])**2, axis=0)
+        distweight = 1.0 / distsq**2
+        gridfield[idx] = np.sum(tracvals * distweight) / np.sum(distweight)
+
+def grid2trac(grid, gridfield, tracs, tracvals, NX, DIM, nfields=1):
+    for itrac in range(tracs.shape[0]):
+        distsq = np.sum(np.array([tracs[itrac,d] - grid[d] for d in range(DIM)])**2, axis=0)
+        distweight = 1.0 / distsq**2
+        if nfields > 1:
+            for ifield in range(nfields):
+                tracvals[itrac,ifield] = np.sum(gridfield[ifield] * distweight) / np.sum(distweight)
+        else:
+            tracvals[itrac] = np.sum(gridfield * distweight) / np.sum(distweight)
+
+def RK(grid, gridvel, tracs, h, NX, DIM, order=2):
+    if order != 2:
+        raise Exception("Sorry, don't know how to do that")
+
+    print("Doing tracer advection")
+
+    trac_vel = np.zeros((tracs.shape[0], DIM))
+    tracs_half_h = np.zeros((tracs.shape[0], DIM))
+    tracs_full_h = np.zeros((tracs.shape[0], DIM))
+    tracvel_half_h = np.zeros((tracs.shape[0], DIM))
+    grid2trac(grid, gridvel, tracs, trac_vel, NX, DIM, nfields=DIM)
+    for d in range(DIM):
+        tracs_half_h[:,d] = tracs[:,d] + 0.5 * h * trac_vel[:,d]
+    grid2trac(grid, gridvel, tracs_half_h, tracvel_half_h, NX, DIM, nfields=DIM)
+    for d in range(DIM):
+        tracs_full_h[:,d] = tracs[:,d] + h * tracvel_half_h[:,d]
+    return trac_vel, tracs_full_h
+
+
+
 ### START MAIN
 
 ### Run control
@@ -198,6 +236,7 @@ SOLVEMETHOD = 'spsolve' # 'spsolve' or 'bicgstab' or 'inv'
 AXES = ['x','z','y']   # one of these must be 'z'
 DIM = 2
 NX = [64,64,5]
+TRACDENS = [256,256]
 L = [660e3,660e3,1.]
 if not 'z' in AXES[0:DIM]:
     raise Exception("one of the dimensions must be 'z'")
@@ -206,6 +245,9 @@ VERTICALDIM = np.where(np.array(AXES)=='z')[0][0]
 
 ### Constants
 G = -9.81
+SECINYR = 60.*60.*24.*365.25
+TSTEP = SECINYR*2e5
+MAXTIME = SECINYR*10.1e6
 
 ### Set up body forces
 fb = [0.0 for d in range(DIM)]
@@ -213,8 +255,6 @@ fb[AXES.index('z')] = G
 
 ### And physical constants
 mu = 1e20
-
-
 
 ### Form the (rectilinear) grid
 axisgrids = [np.linspace(0,L[d],num=NX[d]) for d in range(DIM)]
@@ -224,224 +264,259 @@ grid = np.meshgrid(*(axisgrids[d] for d in range(DIM)), indexing='ij')
 vel = [np.zeros_like(grid[d]) for d in range(DIM)]
 pres = np.zeros_like(grid[0])
 
-#rho = np.zeros_like(grid[0]) + 3300.
-#rho[int(NX[0]/2),int(NX[1]/2)] = 3400.
-rho = np.zeros_like(grid[0]) + 3300.
-rho[:,0:10] = 3350.
-rho[28:35,10:13] = 3350.
+rho = np.zeros_like(grid[0])
 
-
-
-### Form sparse matrix, linear system of equations
-
-dof = (DIM+1) * np.prod(NX[0:DIM])  # DIM+1 <- one eq per dimension + continuity eq
-A = scipy.sparse.lil_matrix((dof, dof))
-b = np.zeros(dof)
-
-DONUMSCALING = True
-if DONUMSCALING:
-    Kcont = 2.0 * mu / np.sum([L[d]/NX[d] for d in range(DIM)])
-    Kbond = 4.0 * mu / np.sum([L[d]/NX[d] for d in range(DIM)])**2.0
-else:
-    Kcont = 1.0
-    Kbond = 1.0
-
-print ("Building matrix")
-for idx in itertools.product(*(range(1,(i-1)) for i in NX[0:DIM])):  # i.e. nested for loops for each dimension "i,j,k,..."
-    # idx gets values [0,0,0] ; [0,0,1] ; [0,0,2] ; ... ; [1,0,0] ; [1,0,1] ; etc. up to [NX[0]-1,NX[1]-1,NX[2]-1]
-    for ieq in range(DIM):
-        # stokes dir 0,1,2,...
-        # NB we assume ieq=0 -> stokes in dir 0
-        #              ieq=1 -> stokes in dir 1, etc.
-        mat_row = gidx(idx, NX, DIM) + ieq
-
-        midcoordsum = 0.0 # sum of terms at i,j,k,...
-        for d in range(DIM):
-            # "idxsum(idx, krd(d, DIM, -1)" : add to index (idx) in dimension d value -1
-
-            # stokes
-            cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + ieq
-            A[mat_row, cidx] = mu * 2.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 0))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) )
-            cidx = gidx(idxsum(idx, krd(d, DIM,  1)), NX, DIM) + ieq
-            A[mat_row, cidx] = mu * 2.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM,  0))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) )
-
-            midcoordsum += -1.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM,  0))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) )
-            midcoordsum += -1.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 0))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) )
-
-        # stokes, u_i_j_k
-        cidx = gidx(idx, NX, DIM) + ieq
-        A[mat_row, cidx] = mu * 2.0 * midcoordsum
-
-        # p_i+1_j : -1 / (x_i+1_j - x_i-1_j)
-        # NB ieq in here (grid[ieq] and krd(ieq,...)) and in next pressure term is used to
-        # determine the direction of the stokes eq
-        cidx = gidx(idxsum(idx, krd(ieq, DIM, 1)), NX, DIM) + DIM  # DIM: stokes eq directions + 1 (pressure term)
-        A[mat_row, cidx] = -Kcont / (grid[ieq][idxsum(idx,krd(ieq, DIM, 1))]-grid[ieq][idxsum(idx,krd(ieq, DIM, -1))])
-
-        # p_i-1_j :  1 / (x_i+1_j - x_i-1_j)
-        cidx = gidx(idxsum(idx, krd(ieq, DIM, -1)), NX, DIM) + DIM
-        A[mat_row, cidx] =  Kcont / (grid[ieq][idxsum(idx,krd(ieq, DIM, 1))]-grid[ieq][idxsum(idx,krd(ieq, DIM, -1))])
-
-        # body force
-        # again, ieq is used to determine the direction of the stokes equation
-        b[mat_row] = fb[ieq] * rho[idx]
-
-    # " ieq == dimensions + 1" (i.e. after stokes eqs), continuity
-    ieq = DIM
-    mat_row = gidx(idx, NX, DIM) + ieq
-    for d in range(DIM):
-        cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
-        A[mat_row, cidx] = Kcont / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
-        cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
-        A[mat_row, cidx] = -Kcont / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
-    
-    b[mat_row] = 0.0
-    
-# one pressure value
-ieq = DIM
-mat_row = gidx([1]*DIM, NX, DIM) + ieq
-cidx = mat_row
-#A[mat_row, :] = 0.0
-A[mat_row, cidx] += 1.0
-#b[mat_row] = 0.0
-b[mat_row] += 1.0
-
-# Boundary conditions
-print("Setting boundary conditions")
-for idx in itertools.product(*(range(0,i) for i in NX[0:DIM])):
-    isbnd = [0]*2*DIM
-    nbnd = 0
-    for d in range(DIM):
-        if idx[d] == 0:
-            isbnd[2*d] = 1
-            nbnd += 1
-        elif idx[d] == NX[d]-1:
-            isbnd[2*d+1] = 1
-            nbnd += 1
-    
-    if nbnd == 0:
-        continue
-    
-    for ieq in range(DIM):
-        # fixed vel
-        mat_row = gidx(idx, NX, DIM) + ieq
-        cidx = mat_row
-        A[mat_row, cidx] = 1.0 * Kbond
-        b[mat_row] = 0.0 * Kbond
-        
-#        ## free-slip    **** UNFINISHED **** TODO ****
-#        mat_row = gidx(idx, NX, DIM) + ieq
-#        if nbnd == DIM:
-#            # corner, fix all
-#            cidx = mat_row
-#            A[mat_row, cidx] = 1.0
-#            b[mat_row] = 0.0
-#        elif isbnd[ieq] > 0:
-#            cidx = mat_row
-#            A[mat_row, cidx] = 1.0
-#            b[mat_row] = 0.0
-#        else:
-#            cidx = mat_row
-#            A[mat_row, cidx] = 1.0
-#            cidx = gidx(sumidx(idx, krd(ieq, DIM, 1)), NX, DIM) + ieq
-#            A[mat_row, cidx] = -1.0    
-        
-    mat_row = gidx(idx, NX, DIM) + DIM
-
-    for d in range(DIM):
-        if nbnd == DIM and DIM > 1:
-            # corner point
-            # in corners
-            # P_i_j_k - (1/(DIM-1))*P_i_j-1_k - (1/(DIM-1))*P_i_j_k-1 = 0
-            # i.e. horizontal symmetry for pressure
-            if d == VERTICALDIM:
-                cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + DIM
-                A[mat_row, cidx] = Kbond * 1.0
-            else:
-                if isbnd[2*d] == 1:
-                    cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + DIM
-                elif isbnd[2*d+1] == 1:
-                    cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + DIM
-                A[mat_row, cidx] = -Kbond*1.0/(DIM-1.0)
-        elif isbnd[2*d] == 1:
-            # left bnd in dir d
-            cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
-            A[mat_row, cidx] = Kbond / (2.0*(grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, 0))]))
-            #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
-            #A[mat_row, cidx] = 1.0
-        elif isbnd[2*d+1] == 1:
-            # right bnd in dir d
-            cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
-            A[mat_row, cidx] = -Kbond / (2.0*(grid[d][idx]-grid[d][idxsum(idx,krd(d, DIM, -1))]))
-            #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
-            #A[mat_row, cidx] = 1.0
-        else: 
-            # not at bnd in dir d
-            cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
-            A[mat_row, cidx] = Kbond / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
-            cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
-            A[mat_row, cidx] = -Kbond / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
-            #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
-            #A[mat_row, cidx] = 1.0 
-    b[mat_row] = 0.0 * Kbond
-
-
-print ("Solving stokes")
-if SOLVEMETHOD == 'spsolve':
-    t0 = time.time()
-    x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A),b)
-    t1 = time.time()
-    err = np.nan
-elif SOLVEMETHOD == 'bicgstab':
-    t0 = time.time()
-    x = scipy.sparse.linalg.bicgstab(A,b)
-    t1 = time.time()
-    err = x[1]
-    x = x[0]
-elif SOLVEMETHOD == 'inv':
-    #Ax=b => A^-1 A x = x = A^-1 b 
-    t0 = time.time()
-    Ainv = np.linalg.inv(A.todense())
-    t1 = time.time()
-    x = np.array(np.dot(Ainv, b))[0]
-else:
-    raise Exception("Unknown method '" + SOLVEMETHOD + "'")
-print("Solved in time: ", t1-t0)
-
-newvel = [[]] * DIM
+### Populate tracers
+tracs = np.random.rand(*(np.prod(TRACDENS[0:DIM]), DIM))
 for d in range(DIM):
-    newvel[d] = x[range(d,dof,DIM+1)].reshape(*tuple(NX[0:DIM]))
-newpres = x[range(DIM,dof,DIM+1)].reshape(NX[0:DIM])
+    tracs[:, d] = tracs[:, d] * L[d]
+
+### Insert densities to tracers
+trac_rho = np.ones(np.prod(TRACDENS[0:DIM])) * 3300.
+idxx = (tracs[:, AXES.index('x')] < 400e3) & (tracs[:, AXES.index('x')] > 300e3)
+idxz = tracs[:, AXES.index('z')] < 100e3
+trac_rho[idxx & idxz] = 3350.
+
+current_time = 0
+current_tstep = 0
+while current_time < MAXTIME:
+    print("Interpolating trac2grid")
+    trac2grid(tracs, trac_rho, grid, rho, NX, DIM)
+
+    ### Form sparse matrix, linear system of equations
+    dof = (DIM+1) * np.prod(NX[0:DIM])  # DIM+1 <- one eq per dimension + continuity eq
+    A = scipy.sparse.lil_matrix((dof, dof))
+    b = np.zeros(dof)
+
+    DONUMSCALING = True
+    if DONUMSCALING:
+        Kcont = 2.0 * mu / np.sum([L[d]/NX[d] for d in range(DIM)])
+        Kbond = 4.0 * mu / np.sum([L[d]/NX[d] for d in range(DIM)])**2.0
+    else:
+        Kcont = 1.0
+        Kbond = 1.0
+
+    print ("Building matrix")
+    for idx in itertools.product(*(range(1,(i-1)) for i in NX[0:DIM])):  # i.e. nested for loops for each dimension "i,j,k,..."
+        # idx gets values [0,0,0] ; [0,0,1] ; [0,0,2] ; ... ; [1,0,0] ; [1,0,1] ; etc. up to [NX[0]-1,NX[1]-1,NX[2]-1]
+        for ieq in range(DIM):
+            # stokes dir 0,1,2,...
+            # NB we assume ieq=0 -> stokes in dir 0
+            #              ieq=1 -> stokes in dir 1, etc.
+            mat_row = gidx(idx, NX, DIM) + ieq
+
+            midcoordsum = 0.0 # sum of terms at i,j,k,...
+            for d in range(DIM):
+                # "idxsum(idx, krd(d, DIM, -1)" : add to index (idx) in dimension d value -1
+
+                # stokes
+                cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + ieq
+                A[mat_row, cidx] = mu * 2.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 0))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) )
+                cidx = gidx(idxsum(idx, krd(d, DIM,  1)), NX, DIM) + ieq
+                A[mat_row, cidx] = mu * 2.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM,  0))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))] - grid[d][idxsum(idx,krd(d, DIM, -1))]) )
+
+                midcoordsum += -1.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM,  0))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) )
+                midcoordsum += -1.0 / ( (grid[d][idxsum(idx,krd(d, DIM, 0))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) * (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))]) )
+
+            # stokes, u_i_j_k
+            cidx = gidx(idx, NX, DIM) + ieq
+            A[mat_row, cidx] = mu * 2.0 * midcoordsum
+
+            # p_i+1_j : -1 / (x_i+1_j - x_i-1_j)
+            # NB ieq in here (grid[ieq] and krd(ieq,...)) and in next pressure term is used to
+            # determine the direction of the stokes eq
+            cidx = gidx(idxsum(idx, krd(ieq, DIM, 1)), NX, DIM) + DIM  # DIM: stokes eq directions + 1 (pressure term)
+            A[mat_row, cidx] = -Kcont / (grid[ieq][idxsum(idx,krd(ieq, DIM, 1))]-grid[ieq][idxsum(idx,krd(ieq, DIM, -1))])
+
+            # p_i-1_j :  1 / (x_i+1_j - x_i-1_j)
+            cidx = gidx(idxsum(idx, krd(ieq, DIM, -1)), NX, DIM) + DIM
+            A[mat_row, cidx] =  Kcont / (grid[ieq][idxsum(idx,krd(ieq, DIM, 1))]-grid[ieq][idxsum(idx,krd(ieq, DIM, -1))])
+
+            # body force
+            # again, ieq is used to determine the direction of the stokes equation
+            b[mat_row] = fb[ieq] * rho[idx]
+
+        # " ieq == dimensions + 1" (i.e. after stokes eqs), continuity
+        ieq = DIM
+        mat_row = gidx(idx, NX, DIM) + ieq
+        for d in range(DIM):
+            cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
+            A[mat_row, cidx] = Kcont / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
+            cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
+            A[mat_row, cidx] = -Kcont / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
+
+        b[mat_row] = 0.0
+
+    # one pressure value
+    ieq = DIM
+    mat_row = gidx([1]*DIM, NX, DIM) + ieq
+    cidx = mat_row
+    #A[mat_row, :] = 0.0
+    A[mat_row, cidx] += 1.0
+    #b[mat_row] = 0.0
+    b[mat_row] += 1.0
+
+    # Boundary conditions
+    print("Setting boundary conditions")
+    for idx in itertools.product(*(range(0,i) for i in NX[0:DIM])):
+        isbnd = [0]*2*DIM
+        nbnd = 0
+        for d in range(DIM):
+            if idx[d] == 0:
+                isbnd[2*d] = 1
+                nbnd += 1
+            elif idx[d] == NX[d]-1:
+                isbnd[2*d+1] = 1
+                nbnd += 1
+
+        if nbnd == 0:
+            continue
+
+        for ieq in range(DIM):
+            # fixed vel
+            mat_row = gidx(idx, NX, DIM) + ieq
+            cidx = mat_row
+            A[mat_row, cidx] = 1.0 * Kbond
+            b[mat_row] = 0.0 * Kbond
+
+    #        ## free-slip    **** UNFINISHED **** TODO ****
+    #        mat_row = gidx(idx, NX, DIM) + ieq
+    #        if nbnd == DIM:
+    #            # corner, fix all
+    #            cidx = mat_row
+    #            A[mat_row, cidx] = 1.0
+    #            b[mat_row] = 0.0
+    #        elif isbnd[ieq] > 0:
+    #            cidx = mat_row
+    #            A[mat_row, cidx] = 1.0
+    #            b[mat_row] = 0.0
+    #        else:
+    #            cidx = mat_row
+    #            A[mat_row, cidx] = 1.0
+    #            cidx = gidx(sumidx(idx, krd(ieq, DIM, 1)), NX, DIM) + ieq
+    #            A[mat_row, cidx] = -1.0
+
+        mat_row = gidx(idx, NX, DIM) + DIM
+
+        for d in range(DIM):
+            if nbnd == DIM and DIM > 1:
+                # corner point
+                # in corners
+                # P_i_j_k - (1/(DIM-1))*P_i_j-1_k - (1/(DIM-1))*P_i_j_k-1 = 0
+                # i.e. horizontal symmetry for pressure
+                if d == VERTICALDIM:
+                    cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + DIM
+                    A[mat_row, cidx] = Kbond * 1.0
+                else:
+                    if isbnd[2*d] == 1:
+                        cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + DIM
+                    elif isbnd[2*d+1] == 1:
+                        cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + DIM
+                    A[mat_row, cidx] = -Kbond*1.0/(DIM-1.0)
+            elif isbnd[2*d] == 1:
+                # left bnd in dir d
+                cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
+                A[mat_row, cidx] = Kbond / (2.0*(grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, 0))]))
+                #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
+                #A[mat_row, cidx] = 1.0
+            elif isbnd[2*d+1] == 1:
+                # right bnd in dir d
+                cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
+                A[mat_row, cidx] = -Kbond / (2.0*(grid[d][idx]-grid[d][idxsum(idx,krd(d, DIM, -1))]))
+                #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
+                #A[mat_row, cidx] = 1.0
+            else:
+                # not at bnd in dir d
+                cidx = gidx(idxsum(idx, krd(d, DIM, 1)), NX, DIM) + d
+                A[mat_row, cidx] = Kbond / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
+                cidx = gidx(idxsum(idx, krd(d, DIM, -1)), NX, DIM) + d
+                A[mat_row, cidx] = -Kbond / (grid[d][idxsum(idx,krd(d, DIM, 1))]-grid[d][idxsum(idx,krd(d, DIM, -1))])
+                #cidx = gidx(idxsum(idx, krd(d, DIM, 0)), NX, DIM) + d
+                #A[mat_row, cidx] = 1.0
+        b[mat_row] = 0.0 * Kbond
 
 
+    print ("Solving stokes")
+    if SOLVEMETHOD == 'spsolve':
+        t0 = time.time()
+        x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A),b)
+        t1 = time.time()
+        err = np.nan
+    elif SOLVEMETHOD == 'bicgstab':
+        t0 = time.time()
+        x = scipy.sparse.linalg.bicgstab(A,b)
+        t1 = time.time()
+        err = x[1]
+        x = x[0]
+    elif SOLVEMETHOD == 'inv':
+        #Ax=b => A^-1 A x = x = A^-1 b
+        t0 = time.time()
+        Ainv = np.linalg.inv(A.todense())
+        t1 = time.time()
+        x = np.array(np.dot(Ainv, b))[0]
+    else:
+        raise Exception("Unknown method '" + SOLVEMETHOD + "'")
+    print("Solved in time: ", t1-t0)
+
+    newvel = [[]] * DIM
+    for d in range(DIM):
+        newvel[d] = x[range(d,dof,DIM+1)].reshape(*tuple(NX[0:DIM]))
+    newpres = x[range(DIM,dof,DIM+1)].reshape(NX[0:DIM])
 
 
-plt.close('all')
-fig = plt.figure()
-ax = fig.add_subplot(221) #, projection='3d')
-ax.quiver(grid[0], grid[1], newvel[0], newvel[1])
-ax = fig.add_subplot(222)
-CS=ax.contourf(grid[0], grid[1], newpres)
-plt.colorbar(CS)
+    #print ("Interpolating grid2trac")
+    #trac_vel = np.zeros((np.prod(TRACDENS[0:DIM]),DIM))
+    #for d in range(DIM):
+    #    tracveld = np.zeros(trac_vel.shape[0])
+    #    grid2trac(grid, newvel[d], tracs, tracveld, NX, DIM)
+    #    trac_vel[:,d] = tracveld
 
-# check:
-# to calculate divergence of the velocity field
-# du/dx + dv/dy
-velDeriv = derivVector(newvel, grid) # all derivatives in all directions
-dudx = velDeriv[0][0]  # Note, du/dx and dv/dy here are
-dvdy = velDeriv[1][1]  # defined at different locations
-dudx = midpScalar(dudx)[1] # midpoint in y dir for x-derivatives
-dvdy = midpScalar(dvdy)[0] # midpoint in x dir for y-derivativex
-                       # Now dudx and dvdy are defined at same locations
-midp_grid = midpVector(grid)
-midp_x = midpScalar(midp_grid[0][0])[1]
-midp_y = midpScalar(midp_grid[1][0])[1]
+    trac_vel, tracs_new = RK(grid, newvel, tracs, TSTEP, NX, DIM)
+    rho_new = np.zeros_like(rho)
+    trac2grid(tracs_new, trac_rho, grid, rho_new, NX, DIM)
 
-divfield = dudx + dvdy
+    plt.close('all')
+    fig = plt.figure()
+    ax = fig.add_subplot(221) #, projection='3d')
+    #ax.quiver(grid[0], grid[1], newvel[0], newvel[1])
+    ax.quiver(tracs[0:trac_vel.shape[0]:10,0], tracs[0:trac_vel.shape[0]:10,1], trac_vel[0:trac_vel.shape[0]:10,0], trac_vel[0:trac_vel.shape[0]:10,1])
+    ax = fig.add_subplot(222)
+    CS=ax.contourf(grid[0], grid[1], rho_new)
+    plt.colorbar(CS)
 
-ax = fig.add_subplot(223)
-CS=ax.contourf(midp_x, midp_y, divfield)
-plt.colorbar(CS)
+    # check:
+    # to calculate divergence of the velocity field
+    # du/dx + dv/dy
+    velDeriv = derivVector(newvel, grid) # all derivatives in all directions
+    dudx = velDeriv[0][0]  # Note, du/dx and dv/dy here are
+    dvdy = velDeriv[1][1]  # defined at different locations
+    dudx = midpScalar(dudx)[1] # midpoint in y dir for x-derivatives
+    dvdy = midpScalar(dvdy)[0] # midpoint in x dir for y-derivativex
+                           # Now dudx and dvdy are defined at same locations
+    midp_grid = midpVector(grid)
+    midp_x = midpScalar(midp_grid[0][0])[1]
+    midp_y = midpScalar(midp_grid[1][0])[1]
+
+    divfield = dudx + dvdy
+
+    ax = fig.add_subplot(223)
+    CS=ax.contourf(midp_x, midp_y, divfield)
+    plt.colorbar(CS)
+
+
+    ax = fig.add_subplot(224)
+    CS=ax.contourf(grid[0], grid[1], rho)
+    plt.colorbar(CS)
+
+    #plt.show()
+    plt.savefig("fig_"+str(current_tstep))
+
+    # Copy fields for next time step
+    tracs = np.copy(tracs_new)
+    rho = np.copy(rho_new)
+
+    current_time += TSTEP
+    current_tstep += 1
 
 ### DISCRETIZED EQUATIONS, 2nd try
 # Stokes flow
@@ -464,7 +539,7 @@ plt.colorbar(CS)
 
 
 
-### DISCRETIZED EQUATIONS
+### DISCRETIZED EQUATIONS, 1st try
 # Stokes flow
 # mu (2(u_i+1_j - 2u_i_j + u_i-1_j) / (x_i+1_j - x_i-1_j)^2 + 2(u_i_j+1 - 2u_i_j + u_i_j-1) / (y_i_j+1 - y_i_j-1)^2) -
 # (p_i+1_j - p_i-1_j) / (x_i+1_j - x_i-1_j) + f_x_i_j = 0
