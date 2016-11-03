@@ -2,6 +2,7 @@
 
 from pylamp_const import *
 import numpy as np
+import sys
 
 def gidx(idxs, nx, dim):
     # Global index for the matrix in linear system of equations
@@ -84,8 +85,12 @@ def x2vp(x, nx):
 
     return (newvel, newpres)
 
+
 def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     # Form the solution matrix for stokes/cont solving
+    #
+    # Currently can do only 2D
+    #
 
     dof = np.prod(nx) * (DIM + 1)
     A   = np.zeros((dof,dof)) #scipy.sparse.lil_matrix((dof, dof))
@@ -100,9 +105,10 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     Kcont = 2*mineta / (avgdx + avgdz)
     Kbond = 4*mineta / (avgdx + avgdz)**2
 
-    c = 0
 
-    #### ghost points:
+    
+    #### ghost points: ####
+    
     j = nx[IX]-1
     i = np.arange(0, nx[IZ])
 
@@ -116,6 +122,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     j = np.arange(nx[IX])
     i = nx[IZ]-1
 
+
     # force vx and P to zero
     A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
     rhs[gidx([i, j], nx, DIM) + IX] = 0
@@ -123,254 +130,254 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     j = np.arange(nx[IX]-1)
     A[gidx([i, j], nx, DIM) + IP, gidx([i, j], nx, DIM) + IP] = Kcont
     rhs[gidx([i, j], nx, DIM) + IP] = 0
-    c += 1
 
 
-    ### boundaries
+    
+    #### boundaries: ####
 
-    # z = 0
+    # at z = 0
     i = 0
-    for j in range(0, nx[IX]):
 
-        # vx extrapolated to be zero from two internal nodes
-        if j > 0 and j < nx[IX]-1:
-            dx1 = grid[IZ][i+1] - grid[IZ][i  ]
-            dx2 = grid[IZ][i+2] - grid[IZ][i+1]
-            A[gidx([i, j], nx, DIM) + IX, gidx([i  , j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
-            A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
-            rhs[gidx([i, j], nx, DIM) + IX] = 0
-            c += 1
+    # vx extrapolated to be zero from two internal nodes
+    j = np.arange(1, nx[IX]-1)
 
-        # vz = 0
-        if j < nx[IX]-1:
-            A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
-            rhs[gidx([i, j], nx, DIM) + IZ] = 0
-            c += 1
+    dx1 = grid[IZ][i+1] - grid[IZ][i  ]
+    dx2 = grid[IZ][i+2] - grid[IZ][i+1]
+    A[gidx([i, j], nx, DIM) + IX, gidx([i  , j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
+    A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
+    rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    numOfZeroRows(A,c)
+    # vz = 0
+    j = np.arange(0, nx[IX]-1)
+    A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
+    rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-    # z = Lz
+
+    # at z = Lz
     i = nx[IZ]-1
-    for j in range(0, nx[IX]):
 
-        # vx extrapolated to be zero from two internal nodes
-        if j > 0 and j < nx[IX]-1:
-            dx1 = grid[IZ][i] - grid[IZ][i-1]
-            dx2 = grid[IZ][i-1] - grid[IZ][i-2]
-            A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
-            A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
-            rhs[gidx([i-1, j], nx, DIM) + IX] = 0
-            c += 1
+    # vx extrapolated to be zero from two internal nodes
+    j = np.arange(1, nx[IX]-1)
+    dx1 = grid[IZ][i] - grid[IZ][i-1]
+    dx2 = grid[IZ][i-1] - grid[IZ][i-2]
+    A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
+    A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
+    rhs[gidx([i-1, j], nx, DIM) + IX] = 0
 
-        # vz = 0
-        if j < nx[IX]-1:
-            A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
-            rhs[gidx([i, j], nx, DIM) + IZ] = 0
-            c += 1
+    # vz = 0
+    j = np.arange(0, nx[IX]-1)
+    A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
+    rhs[gidx([i, j], nx, DIM) + IZ] = 0
         
-    numOfZeroRows(A,c)
 
-    # x = 0
+    # at x = 0
     j = 0
-    for i in range(0, nx[IZ]):
 
-        # vz extrapolated to be zero from two internal nodes
-        if i > 0 and i < nx[IZ]-1:
-            dx1 = grid[IX][j+1] - grid[IX][j  ]
-            dx2 = grid[IX][j+2] - grid[IX][j+1]
-            A[gidx([i, j], nx, DIM) + IZ, gidx([i  , j], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
-            A[gidx([i, j], nx, DIM) + IZ, gidx([i+1, j], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
-            rhs[gidx([i, j], nx, DIM) + IZ] = 0
-            c += 1
+    # vz extrapolated to be zero from two internal nodes
+    i = np.arange(1, nx[IZ]-1)
+    dx1 = grid[IX][j+1] - grid[IX][j  ]
+    dx2 = grid[IX][j+2] - grid[IX][j+1]
+    A[gidx([i, j], nx, DIM) + IZ, gidx([i  , j], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
+    A[gidx([i, j], nx, DIM) + IZ, gidx([i+1, j], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
+    rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-        # vx = 0
-        if i < nx[IZ]-1:
-            A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
-            rhs[gidx([i, j], nx, DIM) + IX] = 0
-            c += 1
+    # vx = 0
+    i = np.arange(0, nx[IZ]-1)
+    A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
+    rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    numOfZeroRows(A,c)
 
-    # x = Lx
+    # at x = Lx
     j = nx[IX]-1
-    for i in range(0, nx[IZ]):
 
-        # vz extrapolated to be zero from two internal nodes
-        if i > 0 and i < nx[IZ]-1:
-            dx1 = grid[IX][j] - grid[IX][j-1]
-            dx2 = grid[IX][j-1] - grid[IX][j-2]
-            A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
-            A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
-            rhs[gidx([i, j], nx, DIM) + IZ] = 0
-            c += 1
+    # vz extrapolated to be zero from two internal nodes
+    i = np.arange(1, nx[IZ]-1)
+    dx1 = grid[IX][j] - grid[IX][j-1]
+    dx2 = grid[IX][j-1] - grid[IX][j-2]
+    A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
+    A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
+    rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-        # vx = 0
-        if i < nx[IZ]-1:
-            A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
-            rhs[gidx([i, j], nx, DIM) + IX] = 0
-            c += 1
-
-    numOfZeroRows(A,c)
+    # vx = 0
+    i = np.arange(0, nx[IZ]-1)
+    A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
+    rhs[gidx([i, j], nx, DIM) + IX] = 0
 
 
-    # continuity at the boundaries
-    for i in range(nx[IZ]-1):
-        for j in range(nx[IX]-1):
-            if i > 0 and i < nx[IZ]-2 and j > 0 and j < nx[IX]-2:
-                continue
-            if  (i == 0 and j == 0) or \
-                (i == 0 and j == nx[IX]-2) or \
-                (i == nx[IZ]-2 and j == 0) or \
-                (i == nx[IZ]-2 and j == nx[IX]-2):
-                continue
 
-            # continuity
-            mat_row = gidx([i, j], nx, DIM) + IP
-            A[mat_row, gidx([i, j+1], nx, DIM) + IX] =  Kcont / (grid[IX][j+1] - grid[IX][j])
-            A[mat_row, gidx([i, j], nx, DIM) + IX] = -Kcont / (grid[IX][j+1] - grid[IX][j])
-            A[mat_row, gidx([i+1, j], nx, DIM) + IZ] =  Kcont / (grid[IZ][i+1] - grid[IZ][i])
-            A[mat_row, gidx([i, j], nx, DIM) + IZ] = -Kcont / (grid[IZ][i+1] - grid[IZ][i])
-            rhs[mat_row] = 0
-            c += 1
+    ### continuity at the boundaries,
+    #   excluding corners
 
-    numOfZeroRows(A, c)
+    arrmask = np.empty(nx)
+    arrmask[:,:] = False
+
+    j = np.arange(1, nx[IX]-2)
+    for i in [0, nx[IZ]-2]:
+        arrmask[i, j] = 2
+
+    i = np.arange(1, nx[IZ]-2)
+    for j in [0, nx[IX]-2]:
+        arrmask[i, j] = 3
+                
+    idxlist = np.where(arrmask)
+    i = idxlist[IZ]
+    j = idxlist[IX]
+
+    mat_row = gidx([i, j], nx, DIM) + IP
+    A[mat_row, gidx([i, j+1], nx, DIM) + IX] =  Kcont / (grid[IX][j+1] - grid[IX][j])
+    A[mat_row, gidx([i, j], nx, DIM) + IX] = -Kcont / (grid[IX][j+1] - grid[IX][j])
+    A[mat_row, gidx([i+1, j], nx, DIM) + IZ] =  Kcont / (grid[IZ][i+1] - grid[IZ][i])
+    A[mat_row, gidx([i, j], nx, DIM) + IZ] = -Kcont / (grid[IZ][i+1] - grid[IZ][i])
+    rhs[mat_row] = 0
 
 
-    # corners, horizontal symmetry for pressure
+    ### corners, horizontal symmetry for pressure
     for i in [0, nx[IZ]-2]:
         j = 0
         A[gidx([i, j], nx, DIM) + IP, gidx([i, j+1], nx, DIM) + IP] =  Kbond
         A[gidx([i, j], nx, DIM) + IP, gidx([i, j  ], nx, DIM) + IP] = -Kbond
         rhs[gidx([i, j], nx, DIM) + IP] = 0
-        c += 1
 
         j = nx[IX]-2
         A[gidx([i, j], nx, DIM) + IP, gidx([i, j-1], nx, DIM) + IP] =  Kbond
         A[gidx([i, j], nx, DIM) + IP, gidx([i, j  ], nx, DIM) + IP] = -Kbond
         rhs[gidx([i, j], nx, DIM) + IP] = 0
-        c += 1
 
-
-    numOfZeroRows(A,c)            
 
 
     # rest of the points
-    for i in range(1,nx[IZ]-1):
-        for j in range(1,nx[IX]-1):
 
-            # ::: z-stokes :::
-            if j < nx[IX]-2:
-                ieq = IZ
-                mat_row = gidx([i, j], nx, DIM) + ieq
+    # ::: z-stokes :::
+    iset = np.arange(1, nx[IZ]-1)
+    jset = np.arange(1, nx[IX]-2)
+    ijset = np.meshgrid(iset, jset)
+    i = ijset[IZ].flatten()
+    j = ijset[IX].flatten()
 
-                # vy_j+½_i
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] = \
-                        -4 * f_etan[i,   j] / (grid[IZ][i+1] - grid[IZ][i  ]) / (grid[IZ][i+1] - grid[IZ][i-1]) + \
-                        -4 * f_etan[i-1, j] / (grid[IZ][i  ] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i-1]) + \
-                        -2 * f_etas[i, j+1] / (grid[IX][j+2] - grid[IX][j  ]) / (grid[IX][j+1] - grid[IX][j  ]) + \
-                        -2 * f_etas[i,   j] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j  ])
+    ieq = IZ
+    mat_row = gidx([i, j], nx, DIM) + ieq
 
-                # vy_j+½_i+1
-                A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  4 * f_etan[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (grid[IZ][i+1] - grid[IZ][i-1])
+    # vy_j+½_i
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] = \
+            -4 * f_etan[i,   j] / (grid[IZ][i+1] - grid[IZ][i  ]) / (grid[IZ][i+1] - grid[IZ][i-1]) + \
+            -4 * f_etan[i-1, j] / (grid[IZ][i  ] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i-1]) + \
+            -2 * f_etas[i, j+1] / (grid[IX][j+2] - grid[IX][j  ]) / (grid[IX][j+1] - grid[IX][j  ]) + \
+            -2 * f_etas[i,   j] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j  ])
 
-                # vy_j+½_i-1
-                A[mat_row, gidx([i-1, j  ], nx, DIM) + IZ] =  4 * f_etan[i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i-1])
+    # vy_j+½_i+1
+    A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  4 * f_etan[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (grid[IZ][i+1] - grid[IZ][i-1])
 
-                # vy_j+1+½_i
-                A[mat_row, gidx([i  , j+1], nx, DIM) + IZ] =  2 * f_etas[i  , j+1] / (grid[IX][j+2] - grid[IX][j]) / (grid[IX][j+1] - grid[IX][j])
+    # vy_j+½_i-1
+    A[mat_row, gidx([i-1, j  ], nx, DIM) + IZ] =  4 * f_etan[i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i-1])
 
-                # vy_j-½_i
-                A[mat_row, gidx([i  , j-1], nx, DIM) + IZ] = -2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j])
+    # vy_j+1+½_i
+    A[mat_row, gidx([i  , j+1], nx, DIM) + IZ] =  2 * f_etas[i  , j+1] / (grid[IX][j+2] - grid[IX][j]) / (grid[IX][j+1] - grid[IX][j])
 
-                # vx_j+1_i+½
-                A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  2 * f_etas[i  , j+1] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
+    # vy_j-½_i
+    A[mat_row, gidx([i  , j-1], nx, DIM) + IZ] = -2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j])
 
-                # vx_j+1_i-½
-                A[mat_row, gidx([i-1, j+1], nx, DIM) + IX] = -2 * f_etas[i  , j+1] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
-                        
-                # vx_j_i+½
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IX] =  2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
+    # vx_j+1_i+½
+    A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  2 * f_etas[i  , j+1] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
 
-                # vx_j_i-½
-                A[mat_row, gidx([i-1, j  ], nx, DIM) + IX] = -2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
+    # vx_j+1_i-½
+    A[mat_row, gidx([i-1, j+1], nx, DIM) + IX] = -2 * f_etas[i  , j+1] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
+            
+    # vx_j_i+½
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IX] =  2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
 
-                # P_j+½_i+½
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IP] = -2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1])
+    # vx_j_i-½
+    A[mat_row, gidx([i-1, j  ], nx, DIM) + IX] = -2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
 
-                # P_j+½_i-½
-                A[mat_row, gidx([i-1, j  ], nx, DIM) + IP] =  2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1]) 
+    # P_j+½_i+½
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IP] = -2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1])
 
-                rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i, j+1]) * G[IZ] 
+    # P_j+½_i-½
+    A[mat_row, gidx([i-1, j  ], nx, DIM) + IP] =  2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1]) 
 
-
-            # ::: x-stokes :::
-            if i < nx[IZ]-2:
-                ieq = IX
-                mat_row = gidx([i, j], nx, DIM) + ieq
-
-                # vx_i+½_j
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IX] = \
-                -4 * f_etan[i,   j] / (grid[IX][j+1] - grid[IX][j  ]) / (grid[IX][j+1] - grid[IX][j-1]) + \
-                -4 * f_etan[i, j-1] / (grid[IX][j  ] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j-1]) + \
-                -2 * f_etas[i+1, j] / (grid[IZ][i+2] - grid[IZ][i  ]) / (grid[IZ][i+1] - grid[IZ][i  ]) + \
-                -2 * f_etas[i,   j] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i  ])  
-
-                # vx_i+½_j+1
-                A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  4 * f_etan[i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (grid[IX][j+1] - grid[IX][j-1])
-
-                # vx_i+½_j-1
-                A[mat_row, gidx([i  , j-1], nx, DIM) + IX] =  4 * f_etan[i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j-1])
-
-                # vx_i+1+½_j
-                A[mat_row, gidx([i+1, j  ], nx, DIM) + IX] =  2 * f_etas[i+1, j  ] / (grid[IZ][i+2] - grid[IZ][i]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # vx_i-½_j  
-                A[mat_row, gidx([i-1, j  ], nx, DIM) + IX] = -2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # vy_i+1_j+½
-                A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  2 * f_etas[i+1, j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # vy_i+1_j-½
-                A[mat_row, gidx([i+1, j-1], nx, DIM) + IZ] = -2 * f_etas[i+1, j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # vy_i_j+½        
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] =  2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # vy_i_j-½  
-                A[mat_row, gidx([i  , j-1], nx, DIM) + IZ] = -2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
-
-                # P_i+½_j+½
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IP] = -2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
-
-                # P_i+½_j-½
-                A[mat_row, gidx([i  , j-1], nx, DIM) + IP] =  2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
-
-                rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i+1, j]) * G[IX] 
+    rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i, j+1]) * G[IZ] 
 
 
+    # ::: x-stokes :::
+    iset = np.arange(1, nx[IZ]-2)
+    jset = np.arange(1, nx[IX]-1)
+    ijset = np.meshgrid(iset, jset)
+    i = ijset[IZ].flatten()
+    j = ijset[IX].flatten()
+
+    ieq = IX
+    mat_row = gidx([i, j], nx, DIM) + ieq
+
+    # vx_i+½_j
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IX] = \
+    -4 * f_etan[i,   j] / (grid[IX][j+1] - grid[IX][j  ]) / (grid[IX][j+1] - grid[IX][j-1]) + \
+    -4 * f_etan[i, j-1] / (grid[IX][j  ] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j-1]) + \
+    -2 * f_etas[i+1, j] / (grid[IZ][i+2] - grid[IZ][i  ]) / (grid[IZ][i+1] - grid[IZ][i  ]) + \
+    -2 * f_etas[i,   j] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i  ])  
+
+    # vx_i+½_j+1
+    A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  4 * f_etan[i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (grid[IX][j+1] - grid[IX][j-1])
+
+    # vx_i+½_j-1
+    A[mat_row, gidx([i  , j-1], nx, DIM) + IX] =  4 * f_etan[i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j-1])
+
+    # vx_i+1+½_j
+    A[mat_row, gidx([i+1, j  ], nx, DIM) + IX] =  2 * f_etas[i+1, j  ] / (grid[IZ][i+2] - grid[IZ][i]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vx_i-½_j  
+    A[mat_row, gidx([i-1, j  ], nx, DIM) + IX] = -2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vy_i+1_j+½
+    A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  2 * f_etas[i+1, j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vy_i+1_j-½
+    A[mat_row, gidx([i+1, j-1], nx, DIM) + IZ] = -2 * f_etas[i+1, j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vy_i_j+½        
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] =  2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vy_i_j-½  
+    A[mat_row, gidx([i  , j-1], nx, DIM) + IZ] = -2 * f_etas[i  , j  ] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IZ][i+1] - grid[IZ][i])
+
+    # P_i+½_j+½
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IP] = -2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
+
+    # P_i+½_j-½
+    A[mat_row, gidx([i  , j-1], nx, DIM) + IP] =  2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
+
+    rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i+1, j]) * G[IX] 
 
 
-            # ::: continuity :::
-            if j < nx[IX]-2 and i < nx[IZ]-2:
-                ieq = IP
-                mat_row = gidx([i, j], nx, DIM) + ieq
-                
-                # vx_i-½_j
-                A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  Kcont / (grid[IX][j+1] - grid[IX][j])
 
-                # vx_i-½_j-1
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IX] = -Kcont / (grid[IX][j+1] - grid[IX][j])
 
-                # vy_i_j-½ 
-                A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  Kcont / (grid[IZ][i+1] - grid[IZ][i])
+    # ::: continuity :::
+    iset = np.arange(1, nx[IZ]-2)
+    jset = np.arange(1, nx[IX]-2)
+    ijset = np.meshgrid(iset, jset)
+    i = ijset[IZ].flatten()
+    j = ijset[IX].flatten()
 
-                # vy_i-1_j-½
-                A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] = -Kcont / (grid[IZ][i+1] - grid[IZ][i])
+    ieq = IP
+    mat_row = gidx([i, j], nx, DIM) + ieq
+    
+    # vx_i-½_j
+    A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  Kcont / (grid[IX][j+1] - grid[IX][j])
 
-                rhs[mat_row] = 0
+    # vx_i-½_j-1
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IX] = -Kcont / (grid[IX][j+1] - grid[IX][j])
 
-                if i == 2 and j == 3:
-                    A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
-                    rhs[mat_row] += 0
+    # vy_i_j-½ 
+    A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  Kcont / (grid[IZ][i+1] - grid[IZ][i])
+
+    # vy_i-1_j-½
+    A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] = -Kcont / (grid[IZ][i+1] - grid[IZ][i])
+
+    rhs[mat_row] = 0
+
+    i == 2
+    j == 3
+    A[gidx([i, j], nx, DIM) + IP, gidx([i, j], nx, DIM) + IP] += Kcont
+    rhs[mat_row] += 0
+
+
 
     return (A, rhs)
