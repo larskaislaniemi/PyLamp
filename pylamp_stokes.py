@@ -244,16 +244,17 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
         rhs[gidx([i, j], nx, DIM) + IP] = 0
 
 
-
-    # rest of the points
-
+        
+    ### rest of the points
+    
     # ::: z-stokes :::
+    
     iset = np.arange(1, nx[IZ]-1)
     jset = np.arange(1, nx[IX]-2)
     ijset = np.meshgrid(iset, jset)
     i = ijset[IZ].flatten()
     j = ijset[IX].flatten()
-
+    
     ieq = IZ
     mat_row = gidx([i, j], nx, DIM) + ieq
 
@@ -295,9 +296,11 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     A[mat_row, gidx([i-1, j  ], nx, DIM) + IP] =  2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1]) 
 
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i, j+1]) * G[IZ] 
-
-
+                
+                
+                
     # ::: x-stokes :::
+    
     iset = np.arange(1, nx[IZ]-2)
     jset = np.arange(1, nx[IX]-1)
     ijset = np.meshgrid(iset, jset)
@@ -345,16 +348,17 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     A[mat_row, gidx([i  , j-1], nx, DIM) + IP] =  2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
 
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i+1, j]) * G[IX] 
-
-
-
+    
+    
+    
     # ::: continuity :::
+    
     iset = np.arange(1, nx[IZ]-2)
     jset = np.arange(1, nx[IX]-2)
     ijset = np.meshgrid(iset, jset)
     i = ijset[IZ].flatten()
     j = ijset[IX].flatten()
-
+    
     ieq = IP
     mat_row = gidx([i, j], nx, DIM) + ieq
     
@@ -372,11 +376,12 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
 
     rhs[mat_row] = 0
 
-    i == 3
-    j == 4
-    A[gidx([i, j], nx, DIM) + IP, gidx([i, j], nx, DIM) + IP] += Kcont
+    
+    # one pressure point with absolute pressure value
+    i = 2
+    j = 3
+    A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
     rhs[mat_row] += 0
-
-
+  
 
     return (A, rhs)
