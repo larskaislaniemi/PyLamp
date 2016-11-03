@@ -348,7 +348,6 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
 
 
 
-
     # ::: continuity :::
     iset = np.arange(1, nx[IZ]-2)
     jset = np.arange(1, nx[IX]-2)
@@ -373,8 +372,8 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
 
     rhs[mat_row] = 0
 
-    i == 2
-    j == 3
+    i == 3
+    j == 4
     A[gidx([i, j], nx, DIM) + IP, gidx([i, j], nx, DIM) + IP] += Kcont
     rhs[mat_row] += 0
 

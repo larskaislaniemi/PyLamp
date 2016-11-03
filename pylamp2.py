@@ -27,7 +27,7 @@ def pprint(*arg):
 #### MAIN ####
 
 # Configurable options
-nx    =   [33,50] #[6,7]         # use order z,x,y
+nx    =   [66,100] #[6,7]         # use order z,x,y
 L     =   [660e3, 1000e3]
 
 # Derived options
