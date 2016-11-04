@@ -32,9 +32,9 @@ def pprint(*arg):
 #### MAIN ####
 
 # Configurable options
-nx    =   [100,101]         # use order z,x,y
+nx    =   [200,201]         # use order z,x,y
 L     =   [660e3, 1000e3]
-tracdens = [4*nx[IZ], 4*nx[IX]] 
+tracdens = [8*nx[IZ], 8*nx[IX]] 
 
 # Derived options
 dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -77,34 +77,29 @@ tr_f[idxx & idxz, TR_RHO] = 3350
 #f_rho[idx] = 3350
 
 tr_f[:, TR_ETA] = 1e19
-tr_f[idxx & idxz, TR_ETA] = 1e20
+tr_f[idxx & idxz, TR_ETA] = 1e17
 #f_etas[:,:] = 1e19
 #f_etan[:,:] = 1e19
 
 
 
+print("Properties trac2grid")
 
 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
         avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
-#f_etas[:,-1] = f_etas[:,-2]
-#f_etas[-1,:] = f_etas[-2,:]
-#f_etan[:,-1] = f_etan[:,-2]
-#f_etan[-1,:] = f_etan[-2,:]
-#f_rho[:,-1] = f_rho[:,-2]
-#f_rho[-1,:] = f_rho[-2,:]
-#pylamp_trac.trac2grid(tr_x, tr_f[:, TR_ETA], mesh, f_etas, nx)#, avgscheme=pylamp_trac.IDW_AVG_GEOMETRIC)
-#pylamp_trac.trac2grid(tr_x, tr_f[:, TR_ETA], mesh, f_etan, nx)#, avgscheme=pylamp_trac.IDW_AVG_GEOMETRIC)
 
+print("Build stokes")
 (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho)
 
+print("Solve stokes")
 # Solve it!
 #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
 x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
 (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-
+print("Plot")
 plt.close('all')
 fig = plt.figure()
 ax = fig.add_subplot(221)

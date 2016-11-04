@@ -94,7 +94,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     #
 
     dof = np.prod(nx) * (DIM + 1)
-    A   = np.zeros((dof,dof)) #lil_matrix((dof, dof))
+    A   = lil_matrix((dof, dof))
     rhs = np.zeros(dof)
 
     # calc scaling coeffs
