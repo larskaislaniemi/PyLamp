@@ -2,6 +2,7 @@
 
 from pylamp_const import *
 import pylamp_stokes 
+import pylamp_trac
 #import math
 #import time
 import numpy as np
@@ -12,6 +13,10 @@ import scipy.sparse.linalg
 #import scipy.sparse.linalg as linalg
 #import itertools
 #from mpi4py import MPI
+import importlib
+
+importlib.reload(pylamp_stokes)
+importlib.reload(pylamp_trac)
 
 def pprint(*arg):
     comm = MPI.COMM_WORLD
@@ -27,17 +32,22 @@ def pprint(*arg):
 #### MAIN ####
 
 # Configurable options
-nx    =   [66,100] #[6,7]         # use order z,x,y
+nx    =   [100,101]         # use order z,x,y
 L     =   [660e3, 1000e3]
+tracdens = [4*nx[IZ], 4*nx[IX]] 
 
 # Derived options
 dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
 
 # Form the grids
 grid   =   [np.linspace(0, L[i], nx[i]) for i in range(DIM)] 
-mesh   =   np.meshgrid(*grid)
+mesh   =   np.meshgrid(*grid, indexing='ij')
 gridmp =   [(grid[i][1:nx[i]] + grid[i][0:(nx[i]-1)]) / 2 for i in range(DIM)]
-meshmp =   np.meshgrid(*gridmp)
+
+for i in range(DIM):
+    gridmp[i] = np.append(gridmp[i], gridmp[i][-1] + (gridmp[i][-1]-gridmp[i][-2]))
+
+meshmp =   np.meshgrid(*gridmp, indexing='ij')
 
 # Variable fields
 f_vel  =   [np.zeros(nx) for i in range(DIM)]  # vx in y-midpoint field
@@ -49,13 +59,42 @@ f_P    =   np.zeros(nx)    # pressure in xy-midpoints
 f_etan =   np.zeros(nx)    # viscosity in xy-midpoints
 
 
-# Some material values and initial values
-f_rho[:,:] = 3300
-idx = np.ix_((grid[IZ] < 380e3) & (grid[IZ] > 280e3), (grid[IX] < 550e3) & (grid[IX] > 450e3))
-f_rho[idx] = 3350
+# Tracers
+ntrac = np.prod(tracdens[0:DIM])
 
-f_etas[:,:] = 1e19
-f_etan[:,:] = 1e19
+tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
+tr_x = np.multiply(tr_x, L)
+tr_f = np.zeros((ntrac, NFTRAC))     # tracer functions (values)
+
+
+# Some material values and initial values
+tr_f[:, TR_RHO] = 3300
+idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
+idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
+tr_f[idxx & idxz, TR_RHO] = 3350
+#f_rho[:,:] = 3300
+#idx = np.ix_((grid[IZ] < 380e3) & (grid[IZ] > 280e3), (grid[IX] < 550e3) & (grid[IX] > 450e3))
+#f_rho[idx] = 3350
+
+tr_f[:, TR_ETA] = 1e19
+tr_f[idxx & idxz, TR_ETA] = 1e20
+#f_etas[:,:] = 1e19
+#f_etan[:,:] = 1e19
+
+
+
+
+pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
+        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
+pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+#f_etas[:,-1] = f_etas[:,-2]
+#f_etas[-1,:] = f_etas[-2,:]
+#f_etan[:,-1] = f_etan[:,-2]
+#f_etan[-1,:] = f_etan[-2,:]
+#f_rho[:,-1] = f_rho[:,-2]
+#f_rho[-1,:] = f_rho[-2,:]
+#pylamp_trac.trac2grid(tr_x, tr_f[:, TR_ETA], mesh, f_etas, nx)#, avgscheme=pylamp_trac.IDW_AVG_GEOMETRIC)
+#pylamp_trac.trac2grid(tr_x, tr_f[:, TR_ETA], mesh, f_etan, nx)#, avgscheme=pylamp_trac.IDW_AVG_GEOMETRIC)
 
 (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho)
 
@@ -65,12 +104,6 @@ x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
 (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-#for i in range(nx[IZ]):
-#    for j in range(nx[IX]):
-#        f_vel[IZ][i,j] = x[pylamp_stokes.gidx([i, j], nx, DIM) + IZ]
-#        f_vel[IX][i,j] = x[pylamp_stokes.gidx([i, j], nx, DIM) + IX]
-#        f_P[i, j] = x[pylamp_stokes.gidx([i, j], nx, DIM) + IP]
-
 
 plt.close('all')
 fig = plt.figure()
@@ -79,9 +112,9 @@ ax.pcolormesh(newvel[0])
 ax = fig.add_subplot(222)
 ax.pcolormesh(newvel[1])
 ax = fig.add_subplot(223)
-ax.pcolormesh(newpres)
-ax = fig.add_subplot(224)
 ax.pcolormesh(f_rho)
+ax = fig.add_subplot(224)
+ax.pcolormesh(f_etan)
 plt.show()
 
 sys.exit()

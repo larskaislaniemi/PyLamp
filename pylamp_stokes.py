@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 from pylamp_const import *
+from scipy.sparse import lil_matrix
 import numpy as np
 import sys
 
@@ -93,7 +94,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     #
 
     dof = np.prod(nx) * (DIM + 1)
-    A   = np.zeros((dof,dof)) #scipy.sparse.lil_matrix((dof, dof))
+    A   = np.zeros((dof,dof)) #lil_matrix((dof, dof))
     rhs = np.zeros(dof)
 
     # calc scaling coeffs
@@ -380,8 +381,8 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     # one pressure point with absolute pressure value
     i = 2
     j = 3
-    A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
-    rhs[mat_row] += 0
+    A[mat_row, gidx([i, j  ], nx, DIM) + IP] = Kcont
+    rhs[mat_row] = 0
   
 
     return (A, rhs)
