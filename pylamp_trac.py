@@ -13,6 +13,41 @@ from scipy.interpolate import griddata
 import itertools
 import sys
 
+def grid2trac(tr_x, tr_f, grid, gridfield, nx):
+
+    assert len(gridfield) == tr_f.shape[1]
+
+    nfield = len(gridfield)
+
+    Lmax = [grid[i][-1] for i in range(DIM)]
+    Lmin = [grid[i][0] for i in range(DIM)]
+    L = [Lmax[i]-Lmin[i] for i in range(DIM)]
+
+    ielem = np.floor((nx[IZ]-1) * (tr_x[:,IZ]-Lmin[IZ]) / L[IZ]).astype(int)
+    jelem = np.floor((nx[IX]-1) * (tr_x[:,IX]-Lmin[IX]) / L[IX]).astype(int)
+
+    ntrac = tr_x.shape[0]
+
+    # distances of tra
+    distx = np.zeros((ntrac,4))
+    distz = np.zeros((ntrac,4))
+
+    for di in [0,1]:
+        for dj in [0,1]:
+            icorner = di * 2 + dj
+            distz[:,icorner] = tr_x[:,IZ] - grid[IZ][ielem+di]
+            distx[:,icorner] = tr_x[:,IX] - grid[IX][jelem+dj]
+    disttot = distz**2 + distx**2
+    nearestcorner = np.argmin(disttot, axis=1)
+    nearestcorner_dj = (nearestcorner % 2).astype(int)
+    nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
+
+    for ifield in range(nfield):
+        tr_f[:,ifield] = gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
+    
+    return
+
+
 def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=None, method=INTERP_METHOD_ELEM):
 
     assert len(gridfield) == tr_f.shape[1]
@@ -36,6 +71,8 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             gridfield[d][:,:] = gridval[:,:,d]
 
     elif method == INTERP_METHOD_ELEM:
+        # TODO: weight by distance to the grid point
+
         Lmax = [grid[i][-1] for i in range(DIM)]
         Lmin = [grid[i][0] for i in range(DIM)]
         L = [Lmax[i]-Lmin[i] for i in range(DIM)]
@@ -112,17 +149,23 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             iprev = i
             jprev = j
 
-    # IDW
 
-    #if distweight is None:
-    #    for idx in itertools.product(*(range(0,i) for i in nx[0:DIM])):
-    #        distsq = np.sum(np.array([tr_x[:,d] - mesh[d][idx] for d in range(DIM)])**2, axis=0)
-    #        distweight = 1.0 / distsq**2
+def RK(tr_x, grid, gridvel, nx, tstep, order=2):
+    if order != 2:
+        raise Exception("Sorry, don't know how to do that")
 
-    #for idx in itertools.product(*(range(0,i) for i in nx[0:DIM])):
-    #    if distweight is None:
-    #        
-    #    if avgscheme == IDW_AVG_ARITHMETIC:
-    #        gridfield[idx] = np.sum(tr_f * distweight) / np.sum(distweight)
-    #    elif avgscheme == IDW_AVG_GEOMETRIC:
-    #        gridfield[idx] = np.exp(np.sum(distweight * np.log(tr_f)) / np.sum(distweight))
+    print("Doing tracer advection")
+    #pylamp_trac.grid2trac(tr_x, tr_v, grid, newvel, nx)
+
+    trac_vel = np.zeros((tr_x.shape[0], DIM))
+    tracs_half_h = np.zeros((tr_x.shape[0], DIM))
+    tracs_full_h = np.zeros((tr_x.shape[0], DIM))
+    tracvel_half_h = np.zeros((tr_x.shape[0], DIM))
+    grid2trac(tr_x, trac_vel, grid, gridvel, nx)
+    for d in range(DIM):
+        tracs_half_h[:,d] = tr_x[:,d] + 0.5 * tstep * trac_vel[:,d]
+    grid2trac(tracs_half_h, tracvel_half_h, grid, gridvel, nx)
+    for d in range(DIM):
+        tracs_full_h[:,d] = tr_x[:,d] + tstep * tracvel_half_h[:,d]
+    return trac_vel, tracs_full_h
+

@@ -32,9 +32,9 @@ def pprint(*arg):
 #### MAIN ####
 
 # Configurable options
-nx    =   [200,201]         # use order z,x,y
+nx    =   [100,101]         # use order z,x,y
 L     =   [660e3, 1000e3]
-tracdens = [8*nx[IZ], 8*nx[IX]] 
+tracdens = [16*nx[IZ], 16*nx[IX]] 
 
 # Derived options
 dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -81,36 +81,47 @@ tr_f[idxx & idxz, TR_ETA] = 1e17
 #f_etas[:,:] = 1e19
 #f_etan[:,:] = 1e19
 
-
-
-print("Properties trac2grid")
-
-pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
-        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
-pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
-
-print("Build stokes")
-(A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho)
-
-print("Solve stokes")
-# Solve it!
-#x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
-x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
-
-(newvel, newpres) = pylamp_stokes.x2vp(x, nx)
-
-print("Plot")
+plt.ion()
 plt.close('all')
 fig = plt.figure()
-ax = fig.add_subplot(221)
-ax.pcolormesh(newvel[0])
-ax = fig.add_subplot(222)
-ax.pcolormesh(newvel[1])
-ax = fig.add_subplot(223)
-ax.pcolormesh(f_rho)
-ax = fig.add_subplot(224)
-ax.pcolormesh(f_etan)
-plt.show()
+
+it = 0
+while (True):
+    it += 1
+    print("Properties trac2grid")
+    pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
+            avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
+    pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+
+    print("Build stokes")
+    (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho)
+
+    print("Solve stokes")
+    # Solve it!
+    #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
+    x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+
+    (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+
+    print("Tracer advection")
+    trac_vel, tracs_new = pylamp_trac.RK(tr_x, grid, newvel, nx, 10*SECINKYR, order=2)
+    tr_x[:,:] = tracs_new[:,:]
+
+    if it % 10 == 1:
+        print("Plot")
+        fig.clf()
+        ax = fig.add_subplot(221)
+        ax.pcolormesh(newvel[0])
+        ax = fig.add_subplot(222)
+        ax.pcolormesh(newvel[1])
+        ax = fig.add_subplot(223)
+        #ax.pcolormesh(f_rho)
+        ax.quiver(tr_x[::10,IX], tr_x[::10,IZ], trac_vel[::10,IX], trac_vel[::10,IZ])
+        ax = fig.add_subplot(224)
+        ax.pcolormesh(f_etan)
+        plt.show()
+
+        dummy = input()
 
 sys.exit()
 

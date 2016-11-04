@@ -80,9 +80,9 @@ def x2vp(x, nx):
         newvel[d] = x[range(d, dof, DIM+1)].reshape(nx)
     newpres = x[range(DIM, dof, DIM+1)].reshape(nx)
 
-    for d in range(DIM):
-        newvel[d] = np.delete(newvel[d], nx[d]-1, axis=d)
-        newpres = np.delete(newpres, nx[d]-1, axis=d)
+    #for d in range(DIM):
+    #    newvel[d] = np.delete(newvel[d], nx[d]-1, axis=d)
+    #    newpres = np.delete(newpres, nx[d]-1, axis=d)
 
     return (newvel, newpres)
 

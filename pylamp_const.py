@@ -18,6 +18,9 @@ IP  = DIM
 
 # Physical constants
 G = [9.81, 0.0]
+SECINYR = 60*60*24*365.25
+SECINKYR = SECINYR * 1e3
+SECINMYR = SECINYR * 1e6
 
 # Tracer constants
 NFTRAC = 2      # number of tracer functions
