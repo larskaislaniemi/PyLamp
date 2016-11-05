@@ -14,6 +14,7 @@ import itertools
 import sys
 
 def grid2trac(tr_x, tr_f, grid, gridfield, nx):
+    # NB! Designed for regular grids!
 
     assert len(gridfield) == tr_f.shape[1]
 
@@ -49,6 +50,7 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx):
 
 
 def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=None, method=INTERP_METHOD_ELEM):
+    # NB! Designed for regular grids
 
     assert len(gridfield) == tr_f.shape[1]
 
@@ -150,22 +152,46 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             jprev = j
 
 
-def RK(tr_x, grid, gridvel, nx, tstep, order=2):
-    if order != 2:
+def RK(tr_x, grid, gridvel, nx, tstep, order=4):
+    if order != 2 and order != 4:
         raise Exception("Sorry, don't know how to do that")
 
     print("Doing tracer advection")
-    #pylamp_trac.grid2trac(tr_x, tr_v, grid, newvel, nx)
 
-    trac_vel = np.zeros((tr_x.shape[0], DIM))
-    tracs_half_h = np.zeros((tr_x.shape[0], DIM))
-    tracs_full_h = np.zeros((tr_x.shape[0], DIM))
-    tracvel_half_h = np.zeros((tr_x.shape[0], DIM))
-    grid2trac(tr_x, trac_vel, grid, gridvel, nx)
-    for d in range(DIM):
-        tracs_half_h[:,d] = tr_x[:,d] + 0.5 * tstep * trac_vel[:,d]
-    grid2trac(tracs_half_h, tracvel_half_h, grid, gridvel, nx)
-    for d in range(DIM):
-        tracs_full_h[:,d] = tr_x[:,d] + tstep * tracvel_half_h[:,d]
-    return trac_vel, tracs_full_h
+    if order == 2:
+        trac_vel = np.zeros((tr_x.shape[0], DIM))
+        tracs_half_h = np.zeros((tr_x.shape[0], DIM))
+        tracs_full_h = np.zeros((tr_x.shape[0], DIM))
+        tracvel_half_h = np.zeros((tr_x.shape[0], DIM))
+        grid2trac(tr_x, trac_vel, grid, gridvel, nx)
+        for d in range(DIM):
+            tracs_half_h[:,d] = tr_x[:,d] + 0.5 * tstep * trac_vel[:,d]
+        grid2trac(tracs_half_h, tracvel_half_h, grid, gridvel, nx)
+        for d in range(DIM):
+            tracs_full_h[:,d] = tr_x[:,d] + tstep * tracvel_half_h[:,d]
+        return trac_vel, tracs_full_h
 
+    elif order == 4:
+        k1vel = np.zeros((tr_x.shape[0], DIM))
+        k2vel = np.zeros_like(k1vel)
+        k3vel = np.zeros_like(k1vel)
+        k4vel = np.zeros_like(k1vel)
+        k2loc = np.zeros_like(k1vel)
+        k3loc = np.zeros_like(k1vel)
+        k4loc = np.zeros_like(k1vel)
+        tr_x_final = np.zeros_like(k1vel)
+
+        grid2trac(tr_x, k1vel, grid, gridvel, nx)
+        for d in range(DIM):
+            k2loc[:,d] = tr_x[:,d] + 0.5 * tstep * k1vel[:,d]
+        grid2trac(k2loc, k2vel, grid, gridvel, nx)
+        for d in range(DIM):
+            k3loc[:,d] = tr_x[:,d] + 0.5 * tstep * k2vel[:,d]
+        grid2trac(k3loc, k3vel, grid, gridvel, nx)
+        for d in range(DIM):
+            k4loc[:,d] = tr_x[:,d] + tstep * k3vel[:,d]
+        grid2trac(k4loc, k4vel, grid, gridvel, nx)
+        for d in range(DIM):
+            tr_x_final[:,d] = tr_x[:,d] + (1/6)*tstep * (k1vel + k2vel + k3vel + k4vel)
+
+        return k1vel, tr_x_final

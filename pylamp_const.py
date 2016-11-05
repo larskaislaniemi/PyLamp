@@ -22,7 +22,12 @@ SECINYR = 60*60*24*365.25
 SECINKYR = SECINYR * 1e3
 SECINMYR = SECINYR * 1e6
 
+
 # Tracer constants
 NFTRAC = 2      # number of tracer functions
 TR_RHO = 0      # indices for tracer functions: density
 TR_ETA = 1      # viscosity
+
+
+# Numerical constants
+EPS = 2**(-10)

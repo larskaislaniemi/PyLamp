@@ -77,7 +77,7 @@ tr_f[idxx & idxz, TR_RHO] = 3350
 #f_rho[idx] = 3350
 
 tr_f[:, TR_ETA] = 1e19
-tr_f[idxx & idxz, TR_ETA] = 1e17
+tr_f[idxx & idxz, TR_ETA] = 1e19
 #f_etas[:,:] = 1e19
 #f_etan[:,:] = 1e19
 
@@ -104,8 +104,11 @@ while (True):
     (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
     print("Tracer advection")
-    trac_vel, tracs_new = pylamp_trac.RK(tr_x, grid, newvel, nx, 10*SECINKYR, order=2)
+    trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, 50*SECINKYR, order=2)
     tr_x[:,:] = tracs_new[:,:]
+    for d in range(DIM):
+        tr_x[tr_x[:,d] <= 0, d] = EPS
+        tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
 
     if it % 10 == 1:
         print("Plot")
@@ -118,10 +121,10 @@ while (True):
         #ax.pcolormesh(f_rho)
         ax.quiver(tr_x[::10,IX], tr_x[::10,IZ], trac_vel[::10,IX], trac_vel[::10,IZ])
         ax = fig.add_subplot(224)
-        ax.pcolormesh(f_etan)
+        ax.pcolormesh(f_rho)
         plt.show()
 
-        dummy = input()
+        #dummy = input()
 
 sys.exit()
 
