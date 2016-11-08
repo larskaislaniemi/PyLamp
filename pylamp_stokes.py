@@ -5,6 +5,9 @@ from scipy.sparse import lil_matrix
 import numpy as np
 import sys
 
+BC_TYPE_NOSLIP = 0
+BC_TYPE_FREESLIP = 1
+
 def gidx(idxs, nx, dim):
     # Global index for the matrix in linear system of equations
     #   gidx = ...  +  iz * ny * nx * (DIM+1)  +  ix * ny * (DIM+1)  +  iy * (DIM+1)  +  ieq
@@ -87,7 +90,7 @@ def x2vp(x, nx):
     return (newvel, newpres)
 
 
-def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
+def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc):
     # Form the solution matrix for stokes/cont solving
     #
     # Currently can do only 2D
@@ -139,16 +142,23 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     # at z = 0
     i = 0
 
-    # vx extrapolated to be zero from two internal nodes
-    j = np.arange(1, nx[IX]-1)
+    if bc[DIM*0 + IZ] == BC_TYPE_NOSLIP:
+        # vx extrapolated to be zero from two internal nodes
+        j = np.arange(1, nx[IX]-1)
+        dx1 = grid[IZ][i+1] - grid[IZ][i  ]
+        dx2 = grid[IZ][i+2] - grid[IZ][i+1]
+        A[gidx([i, j], nx, DIM) + IX, gidx([i  , j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
+        A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
+        rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    dx1 = grid[IZ][i+1] - grid[IZ][i  ]
-    dx2 = grid[IZ][i+2] - grid[IZ][i+1]
-    A[gidx([i, j], nx, DIM) + IX, gidx([i  , j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
-    A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
-    rhs[gidx([i, j], nx, DIM) + IX] = 0
+    elif bc[DIM*0 + IZ] == BC_TYPE_FREESLIP:
+        # vx equals to vx in grid point next to bnd
+        j = np.arange(1, nx[IX]-1)
+        A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
+        A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = -Kcont
+        rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    # vz = 0
+    # vz = 0, no flowing through the boundary
     j = np.arange(0, nx[IX]-1)
     A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
     rhs[gidx([i, j], nx, DIM) + IZ] = 0
@@ -157,18 +167,27 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho):
     # at z = Lz
     i = nx[IZ]-1
 
-    # vx extrapolated to be zero from two internal nodes
-    j = np.arange(1, nx[IX]-1)
-    dx1 = grid[IZ][i] - grid[IZ][i-1]
-    dx2 = grid[IZ][i-1] - grid[IZ][i-2]
-    A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
-    A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
-    rhs[gidx([i-1, j], nx, DIM) + IX] = 0
+    if bc[DIM*1 + IZ] == BC_TYPE_NOSLIP:
+        # vx extrapolated to be zero from two internal nodes
+        j = np.arange(1, nx[IX]-1)
+        dx1 = grid[IZ][i] - grid[IZ][i-1]
+        dx2 = grid[IZ][i-1] - grid[IZ][i-2]
+        A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (1 + dx1 / (dx1+dx2))
+        A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * dx1 / (dx1+dx2)
+        rhs[gidx([i-1, j], nx, DIM) + IX] = 0
+
+    elif bc[DIM*1 + IZ] == BC_TYPE_FREESLIP:
+        # vx equals to vx in grid point next to bnd
+        j = np.arange(1, nx[IX]-1)
+        A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont
+        A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = -Kcont
+        rhs[gidx([i, j], nx, DIM) + IX] = 0
 
     # vz = 0
     j = np.arange(0, nx[IX]-1)
     A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
     rhs[gidx([i, j], nx, DIM) + IZ] = 0
+
         
 
     # at x = 0

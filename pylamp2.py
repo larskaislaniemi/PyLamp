@@ -3,14 +3,10 @@
 from pylamp_const import *
 import pylamp_stokes 
 import pylamp_trac
-#import math
-#import time
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
-#from mpl_toolkits.mplot3d import axes3d
 import scipy.sparse.linalg
-#import scipy.sparse.linalg as linalg
 #import itertools
 #from mpi4py import MPI
 import importlib
@@ -30,103 +26,148 @@ def pprint(*arg):
 
 
 #### MAIN ####
+if __name__ == "__main__":
 
-# Configurable options
-nx    =   [100,101]         # use order z,x,y
-L     =   [660e3, 1000e3]
-tracdens = [16*nx[IZ], 16*nx[IX]] 
+    # Configurable options
+    nx    =   [64,65]         # use order z,x,y
+    L     =   [660e3, 1000e3]
+    tracdens = [8*nx[IZ], 8*nx[IX]] 
 
-# Derived options
-dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
+    # Derived options
+    dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
 
-# Form the grids
-grid   =   [np.linspace(0, L[i], nx[i]) for i in range(DIM)] 
-mesh   =   np.meshgrid(*grid, indexing='ij')
-gridmp =   [(grid[i][1:nx[i]] + grid[i][0:(nx[i]-1)]) / 2 for i in range(DIM)]
+    # Form the grids
+    grid   =   [np.linspace(0, L[i], nx[i]) for i in range(DIM)] 
+    mesh   =   np.meshgrid(*grid, indexing='ij')
+    gridmp =   [(grid[i][1:nx[i]] + grid[i][0:(nx[i]-1)]) / 2 for i in range(DIM)]
 
-for i in range(DIM):
-    gridmp[i] = np.append(gridmp[i], gridmp[i][-1] + (gridmp[i][-1]-gridmp[i][-2]))
+    for i in range(DIM):
+        gridmp[i] = np.append(gridmp[i], gridmp[i][-1] + (gridmp[i][-1]-gridmp[i][-2]))
 
-meshmp =   np.meshgrid(*gridmp, indexing='ij')
+    meshmp =   np.meshgrid(*gridmp, indexing='ij')
 
-# Variable fields
-f_vel  =   [np.zeros(nx) for i in range(DIM)]  # vx in y-midpoint field
-                                               # vy in x-midpoint field
-f_etas =   np.zeros(nx)    # viscosity in main grid points
-f_T    =   np.zeros(nx)    # temperature in main grid points
-f_rho  =   np.zeros(nx)    # rho in main grid points
-f_P    =   np.zeros(nx)    # pressure in xy-midpoints
-f_etan =   np.zeros(nx)    # viscosity in xy-midpoints
-
-
-# Tracers
-ntrac = np.prod(tracdens[0:DIM])
-
-tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
-tr_x = np.multiply(tr_x, L)
-tr_f = np.zeros((ntrac, NFTRAC))     # tracer functions (values)
+    # Variable fields
+    f_vel  =   [np.zeros(nx) for i in range(DIM)]  # vx in y-midpoint field
+                                                   # vy in x-midpoint field
+    f_etas =   np.zeros(nx)    # viscosity in main grid points
+    f_T    =   np.zeros(nx)    # temperature in main grid points
+    f_rho  =   np.zeros(nx)    # rho in main grid points
+    f_P    =   np.zeros(nx)    # pressure in xy-midpoints
+    f_etan =   np.zeros(nx)    # viscosity in xy-midpoints
 
 
-# Some material values and initial values
-tr_f[:, TR_RHO] = 3300
-idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
-idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-tr_f[idxx & idxz, TR_RHO] = 3350
-#f_rho[:,:] = 3300
-#idx = np.ix_((grid[IZ] < 380e3) & (grid[IZ] > 280e3), (grid[IX] < 550e3) & (grid[IX] > 450e3))
-#f_rho[idx] = 3350
+    # Tracers
+    ntrac = np.prod(tracdens[0:DIM])
 
-tr_f[:, TR_ETA] = 1e19
-tr_f[idxx & idxz, TR_ETA] = 1e19
-#f_etas[:,:] = 1e19
-#f_etan[:,:] = 1e19
+    tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
+    tr_x = np.multiply(tr_x, L)
+    tr_f = np.zeros((ntrac, NFTRAC))     # tracer functions (values)
 
-plt.ion()
-plt.close('all')
-fig = plt.figure()
 
-it = 0
-while (True):
-    it += 1
-    print("Properties trac2grid")
-    pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
-            avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
-    pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+    ## Some material values and initial values
+    # Density
+    tr_f[:, TR_RHO] = 3300
+    idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
+    idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
+    tr_f[idxx & idxz, TR_RHO] = 3350
 
-    print("Build stokes")
-    (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho)
+    # Viscosity
+    tr_f[:, TR_ETA] = 1e19
+    tr_f[idxx & idxz, TR_ETA] = 1e19
 
-    print("Solve stokes")
-    # Solve it!
-    #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
-    x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+    # Passive markers
+    inixdiv = np.linspace(0, L[IX], 10)
+    inizdiv = np.linspace(0, L[IZ], 10)
+    for i in range(0,9,2):
+        tr_f[(tr_x[:,IZ] >= inizdiv[i]) & (tr_x[:,IZ] < inizdiv[i+1]), TR_MRK] += 1
+    for i in range(1,9,2):
+        tr_f[(tr_x[:,IZ] >= inizdiv[i]) & (tr_x[:,IZ] < inizdiv[i+1]), TR_MRK] += 2
+    for i in range(0,9,2):
+        tr_f[(tr_x[:,IX] >= inixdiv[i]) & (tr_x[:,IX] < inixdiv[i+1]), TR_MRK] *= -1
 
-    (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-    print("Tracer advection")
-    trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, 50*SECINKYR, order=2)
-    tr_x[:,:] = tracs_new[:,:]
-    for d in range(DIM):
-        tr_x[tr_x[:,d] <= 0, d] = EPS
-        tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
+    it = 0
+    totaltime = 0
+    while (True):
+        it += 1
+        print("\n --- Time step:", it, "---")
 
-    if it % 10 == 1:
-        print("Plot")
-        fig.clf()
-        ax = fig.add_subplot(221)
-        ax.pcolormesh(newvel[0])
-        ax = fig.add_subplot(222)
-        ax.pcolormesh(newvel[1])
-        ax = fig.add_subplot(223)
-        #ax.pcolormesh(f_rho)
-        ax.quiver(tr_x[::10,IX], tr_x[::10,IZ], trac_vel[::10,IX], trac_vel[::10,IZ])
-        ax = fig.add_subplot(224)
-        ax.pcolormesh(f_rho)
-        plt.show()
+        print("Properties trac2grid")
+        pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
+                avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
+        pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
 
-        #dummy = input()
+        print("Build stokes")
+        bcstokes = [pylamp_stokes.BC_TYPE_FREESLIP, pylamp_stokes.BC_TYPE_NOSLIP, \
+                pylamp_stokes.BC_TYPE_FREESLIP, pylamp_stokes.BC_TYPE_NOSLIP]
+        (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
 
-sys.exit()
+        print("Solve stokes")
+        # Solve it!
+        #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
+        x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+
+        (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+
+        tstep = 0.5 * np.min(dx) / np.max(newvel)
+        totaltime += tstep
+        print("Tracer advection")
+        print("   time step =", tstep/SECINKYR, "kyrs")
+        print("   time now  =", totaltime/SECINKYR, "kyrs")
+        trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, tstep, order=4)
+        tr_x[:,:] = tracs_new[:,:]
+
+        # do not allow tracers to advect outside the domain
+        for d in range(DIM):
+            tr_x[tr_x[:,d] <= 0, d] = EPS
+            tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
+
+        if it % 20 == 1:
+            print("Plot")
+            plt.close('all')
+            fig = plt.figure()
+
+            ax = fig.add_subplot(221)
+            #ax.pcolormesh(newvel[0])
+            ax.pcolormesh(f_rho)
+
+            ax = fig.add_subplot(222)
+            #ax.pcolormesh(newvel[1])
+            ax.pcolormesh(np.log10(f_etan))
+
+            ax = fig.add_subplot(223)
+            ax.quiver(tr_x[::10,IX], tr_x[::10,IZ], trac_vel[::10,IX], trac_vel[::10,IZ])
+            #ax = fig.add_subplot(224)
+            #ax.pcolormesh(f_rho)
+            #plt.show()
+
+            ## divergence field
+            #div_dv = newvel[IZ][1:,:] - newvel[IZ][:-1,:]
+            #div_du = newvel[IX][:,1:] - newvel[IX][:,:-1]
+            #div_dz = grid[IZ][1:] - grid[IZ][:-1]
+            #div_dx = grid[IX][1:] - grid[IX][:-1]
+            #divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
+            #ax = fig.add_subplot(224)
+            #cs = ax.pcolormesh(divergence)
+            #plt.colorbar(cs)
+            ##CS=ax.contourf(midp_x, midp_y, divfield)
+            ##plt.colorbar(CS)
+
+            ## marker field with triangulated interpolation
+            #ax = fig.add_subplot(224)
+            #ax.tripcolor(tr_x[:,IX], tr_x[:,IZ], tr_f[:,TR_MRK])
+
+            ax = fig.add_subplot(224)
+            xi = np.linspace(0,L[IX],100)
+            yi = np.linspace(0,L[IZ],100)
+            zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_MRK], (xi[None,:], yi[:,None]), method='linear')
+            cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
+
+            plt.show()
+
+            #dummy = input()
+
+    sys.exit()
 
 # :::: x-stokes ::::
 # For vx-node vx_i+½_j

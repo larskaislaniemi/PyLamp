@@ -24,9 +24,10 @@ SECINMYR = SECINYR * 1e6
 
 
 # Tracer constants
-NFTRAC = 2      # number of tracer functions
+NFTRAC = 3      # number of tracer functions
 TR_RHO = 0      # indices for tracer functions: density
 TR_ETA = 1      # viscosity
+TR_MRK = 2      # passive marker
 
 
 # Numerical constants
