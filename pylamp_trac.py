@@ -35,8 +35,14 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     ielem = np.floor((nx[IZ]-1) * (tr_x[:,IZ]-Lmin[IZ]) / L[IZ]).astype(int)
     jelem = np.floor((nx[IX]-1) * (tr_x[:,IX]-Lmin[IX]) / L[IX]).astype(int)
 
-    idxdefval = (tr_x[:,IZ] < Lmin[IZ]) | (tr_x[:,IZ] > Lmax[IZ]) | \
-            (tr_x[:,IX] < Lmin[IX]) | (tr_x[:,IX] > Lmax[IX])
+    #idxdefval = (tr_x[:,IZ] < Lmin[IZ]) | (tr_x[:,IZ] > Lmax[IZ]) | \
+    #        (tr_x[:,IX] < Lmin[IX]) | (tr_x[:,IX] > Lmax[IX])
+
+    idxdefval = (ielem < 0) | (ielem > nx[IZ]-1) | (jelem < 0) | (jelem > nx[IX]-1)
+
+    if np.sum(idxdefval) > 0:
+        print("!!! Warning, grid2trac(): Using default value for extrapolation in ", np.sum(idxdefval), "tracers")
+#        raise Exception("!!! Error, grid2trac(): Using default value for extrapolation in ", np.sum(idxdefval), "tracers")
 
     ielem[idxdefval] = 0
     jelem[idxdefval] = 0
@@ -70,11 +76,15 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             zavg1 = xavg1 * distz[:,2] + xavg2 * distz[:,0]
             zavg1 = zavg1 / (distz[:,2] + distz[:,0])
             tr_f[:,ifield] = zavg1[:]
+
         elif method == INTERP_METHOD_VELDIV:
             # See Wang et al 2015 (or Meyer and Jenny 2004)
             # 2nd order bilinear interpolation
+            # conserves the divergence (=0) also during the advection
 
             # Only 2D implemented!
+            # Does not work properly yet as vz,vx are on different grids...
+
 
             # local interpolated velocity at (x1,x2):
             # U_i^L = (1-x1)*(1-x2)*U_i^a + x1*(1-x2)*U_i^b + (1-x1)*x2*U_i^c + x1*x2*U_i^d
@@ -106,6 +116,11 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             #distz[:, 2] = distz[:, 2] / (distz[:, 0] + distz[:, 2])
             #distz[:, 3] = distz[:, 3] / (distz[:, 1] + distz[:, 3])
 
+            #Ux = 0.5 * (1-distx[:, 0]) * (gridfield[IX][ielem, jelem] + gridfield[IX][ielem+1,jelem]) + \
+            #        0.5 * distx[:, 0] * (gridfield[IX][ielem, jelem+1] + gridfield[IX][ielem+1,jelem+1])
+            #Uz = 0.5 * (1-distz[:, 0]) * (gridfield[IZ][ielem, jelem] + gridfield[IZ][ielem, jelem+1]) + \
+            #        0.5 * distz[:, 0] * (gridfield[IZ][ielem+1, jelem] + gridfield[IZ][ielem+1, jelem+1])
+
             Ux = \
                     (1-distx[:,0]) * (1-distz[:,0]) * gridfield[IX][ielem + 0, jelem + 0] + \
                     distx[:,0] * (1-distz[:,0]) * gridfield[IX][ielem + 0, jelem + 1] + \
@@ -125,6 +140,7 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             C20 = (0.5 * distz[:,0] / distx[:,0]) * \
                     (gridfield[IX][ielem + 0, jelem + 0] - gridfield[IX][ielem + 0, jelem + 1] +\
                     gridfield[IX][ielem + 1, jelem + 1] - gridfield[IX][ielem + 1, jelem + 0])
+
             dU1 = distx[:,0] * (1-distx[:,0]) * C10
             dU2 = distz[:,0] * (1-distz[:,0]) * C20
 
@@ -178,9 +194,6 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         traccount[ielem+1,jelem+1] += 1
 
         zeroidx = traccount == 0
-        #if np.sum(zeroidx) > 0:
-        #    print("!!! Zero values in: ")
-        #    print(np.where(zeroidx))
 
         zeroelemidx = zeroidx[0::2,0::2] + zeroidx[1::2,0::2] + \
                 zeroidx[0::2,1::2] + zeroidx[1::2,1::2]
@@ -249,11 +262,15 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             jprev = j
 
 
-def RK(tr_x, grid, gridvel, nx, tstep, order=2):
+def RK(tr_x, grids, vels, nx, tstep, order=4):
     if order != 2 and order != 4:
         raise Exception("Sorry, don't know how to do that")
 
+    if len(nx) != 2:
+        raise Exception("Sorry, only 2D supported at the moment")
+
     if order == 2:
+        # TODO: implement as in RK4
         trac_vel = np.zeros((tr_x.shape[0], DIM))
         tracs_half_h = np.zeros((tr_x.shape[0], DIM))
         tracs_full_h = np.zeros((tr_x.shape[0], DIM))
@@ -268,6 +285,7 @@ def RK(tr_x, grid, gridvel, nx, tstep, order=2):
 
     elif order == 4:
         k1vel = np.zeros((tr_x.shape[0], DIM))
+        tmp   = np.zeros((tr_x.shape[0],1))
         k2vel = np.zeros_like(k1vel)
         k3vel = np.zeros_like(k1vel)
         k4vel = np.zeros_like(k1vel)
@@ -275,18 +293,42 @@ def RK(tr_x, grid, gridvel, nx, tstep, order=2):
         k3loc = np.zeros_like(k1vel)
         k4loc = np.zeros_like(k1vel)
         tr_x_final = np.zeros_like(k1vel)
+        vel_final = np.zeros_like(k1vel)
 
-        grid2trac(tr_x, k1vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_VELDIV)
+        grid2trac(tr_x, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
+        k1vel[:,IZ] = tmp[:,0]
+        grid2trac(tr_x, tmp, grids[IX], [vels[IX], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
+        k1vel[:,IX] = tmp[:,0]
+        #grid2trac(tr_x, k1vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+        
         for d in range(DIM):
             k2loc[:,d] = tr_x[:,d] + 0.5 * tstep * k1vel[:,d]
-        grid2trac(k2loc, k2vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_VELDIV)
+        grid2trac(k2loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
+        k2vel[:,IZ] = tmp[:,0]
+        grid2trac(k2loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
+        k2vel[:,IX] = tmp[:,0]
+        #grid2trac(k2loc, k2vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+
         for d in range(DIM):
             k3loc[:,d] = tr_x[:,d] + 0.5 * tstep * k2vel[:,d]
-        grid2trac(k3loc, k3vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_VELDIV)
+        grid2trac(k3loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
+        k3vel[:,IZ] = tmp[:,0]
+        grid2trac(k3loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
+        k3vel[:,IX] = tmp[:,0]
+        #grid2trac(k3loc, k3vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+
         for d in range(DIM):
             k4loc[:,d] = tr_x[:,d] + tstep * k3vel[:,d]
-        grid2trac(k4loc, k4vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_VELDIV)
+        grid2trac(k4loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
+        k4vel[:,IZ] = tmp[:,0]
+        grid2trac(k4loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
+        k4vel[:,IX] = tmp[:,0]
+        #grid2trac(k4loc, k4vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+
+
         for d in range(DIM):
             tr_x_final[:,d] = tr_x[:,d] + (1/6)*tstep * (k1vel[:,d] + k2vel[:,d] + k3vel[:,d] + k4vel[:,d])
+            vel_final[:,d] = (tr_x_final[:,d] - tr_x[:,d]) / tstep
 
-        return k1vel, tr_x_final
+
+        return vel_final, tr_x_final

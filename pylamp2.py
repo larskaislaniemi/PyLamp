@@ -31,7 +31,7 @@ if __name__ == "__main__":
     # Configurable options
     nx    =   [64,65]         # use order z,x,y
     L     =   [660e3, 1000e3]
-    tracdens = [8*nx[IZ], 8*nx[IX]] 
+    tracdens = 40   # how many tracers per element
 
     # Derived options
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
 
     # Tracers
-    ntrac = np.prod(tracdens[0:DIM])
+    ntrac = np.prod(nx)*tracdens
 
     tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
     tr_x = np.multiply(tr_x, L)
@@ -69,7 +69,12 @@ if __name__ == "__main__":
     tr_f[:, TR_RHO] = 3300
     idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
     idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-    tr_f[idxx & idxz, TR_RHO] = 3350
+    tr_f[idxx & idxz, TR_RHO] = 3340
+
+    ## ... sticky air test
+    #idxz2 = tr_x[:, IZ] < 50e3
+    #tr_f[idxz2, TR_RHO] = 1000
+    #tr_f[idxz2, TR_ETA] = 1e17
 
     # Viscosity
     tr_f[:, TR_ETA] = 1e19
@@ -98,8 +103,12 @@ if __name__ == "__main__":
         pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
 
         print("Build stokes")
-        bcstokes = [pylamp_stokes.BC_TYPE_FREESLIP, pylamp_stokes.BC_TYPE_NOSLIP, \
-                pylamp_stokes.BC_TYPE_FREESLIP, pylamp_stokes.BC_TYPE_NOSLIP]
+        bcstokes = [ \
+                pylamp_stokes.BC_TYPE_FREESLIP, \
+                pylamp_stokes.BC_TYPE_NOSLIP, \
+                pylamp_stokes.BC_TYPE_NOSLIP, \
+                pylamp_stokes.BC_TYPE_NOSLIP  \
+                ]  # idx is DIM*side + DIR 
         (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
 
         print("Solve stokes")
@@ -109,12 +118,39 @@ if __name__ == "__main__":
 
         (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-        tstep = 0.5 * np.min(dx) / np.max(newvel)
+        tstep = 0.25 * np.min(dx) / np.max(newvel)
         totaltime += tstep
         print("Tracer advection")
         print("   time step =", tstep/SECINKYR, "kyrs")
         print("   time now  =", totaltime/SECINKYR, "kyrs")
-        trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, tstep, order=4)
+
+        # for interpolation of velocity from grid to tracers we need
+        # all tracers to be within the grid and so we need to extend the 
+        # (vz,vx) grid at x=0 and z=0 boundaries
+        preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
+        grids = [                                                   \
+                [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
+                [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
+                ]
+        vels  = [                                                  \
+                np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
+                np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
+                ]
+
+        if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+            vels[IX][0,:] = 0
+        elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+            vels[IX][0,:] = vels[IX][1,:]
+        vels[IZ][0,:] = 0
+
+        if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+            vels[IZ][:,0] = 0
+        elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+            vels[IZ][:,0] = vels[IZ][:,1]
+        vels[IX][:,0] = 0
+
+        trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
+        #trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, tstep)
         tr_x[:,:] = tracs_new[:,:]
 
         # do not allow tracers to advect outside the domain
@@ -122,7 +158,7 @@ if __name__ == "__main__":
             tr_x[tr_x[:,d] <= 0, d] = EPS
             tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
 
-        if it % 20 == 1:
+        if it % 100 == 1:
             print("Plot")
             plt.close('all')
             fig = plt.figure()
@@ -131,27 +167,38 @@ if __name__ == "__main__":
             #ax.pcolormesh(newvel[0])
             ax.pcolormesh(f_rho)
 
-            ax = fig.add_subplot(222)
+            #ax = fig.add_subplot(222)
             #ax.pcolormesh(newvel[1])
-            ax.pcolormesh(np.log10(f_etan))
+            #ax.pcolormesh(np.log10(f_etan))
+
+            ax = fig.add_subplot(222)
+            vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
+            vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
+            ax.pcolormesh(vzgrid)
+#            ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
 
             ax = fig.add_subplot(223)
-            ax.quiver(tr_x[::10,IX], tr_x[::10,IZ], trac_vel[::10,IX], trac_vel[::10,IZ])
+            ax.quiver(tr_x[::1,IX], tr_x[::1,IZ], trac_vel[::1,IX]*tstep, trac_vel[::1,IZ]*tstep, angles='xy', scale_units='xy', scale=0.5)
+            ax.set_xticks(grid[IX])
+            ax.set_yticks(grid[IZ])
+            ax.xaxis.grid()
+            ax.yaxis.grid()
             #ax = fig.add_subplot(224)
             #ax.pcolormesh(f_rho)
             #plt.show()
 
-            ## divergence field
-            #div_dv = newvel[IZ][1:,:] - newvel[IZ][:-1,:]
-            #div_du = newvel[IX][:,1:] - newvel[IX][:,:-1]
-            #div_dz = grid[IZ][1:] - grid[IZ][:-1]
-            #div_dx = grid[IX][1:] - grid[IX][:-1]
-            #divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
-            #ax = fig.add_subplot(224)
+            ### divergence field
+            #ax = fig.add_subplot(222)
+            #div_dv = newvel[IZ][1:,:-1] - newvel[IZ][:-1,:-1]
+            #div_du = newvel[IX][:-1,1:] - newvel[IX][:-1,:-1]
+            #div_dz = mesh[IZ][1:,:-1] - mesh[IZ][:-1,:-1]
+            #div_dx = mesh[IX][:-1,1:] - mesh[IX][:-1,:-1]
+            ##divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
+            #divergence = div_dv / div_dz + div_du / div_dx
             #cs = ax.pcolormesh(divergence)
             #plt.colorbar(cs)
-            ##CS=ax.contourf(midp_x, midp_y, divfield)
-            ##plt.colorbar(CS)
+            ###CS=ax.contourf(midp_x, midp_y, divfield)
+            ###plt.colorbar(CS)
 
             ## marker field with triangulated interpolation
             #ax = fig.add_subplot(224)

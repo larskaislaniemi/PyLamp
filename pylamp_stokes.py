@@ -193,13 +193,20 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc):
     # at x = 0
     j = 0
 
-    # vz extrapolated to be zero from two internal nodes
-    i = np.arange(1, nx[IZ]-1)
-    dx1 = grid[IX][j+1] - grid[IX][j  ]
-    dx2 = grid[IX][j+2] - grid[IX][j+1]
-    A[gidx([i, j], nx, DIM) + IZ, gidx([i  , j], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
-    A[gidx([i, j], nx, DIM) + IZ, gidx([i+1, j], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
-    rhs[gidx([i, j], nx, DIM) + IZ] = 0
+    if bc[DIM*0 + IX] == BC_TYPE_NOSLIP:
+        # vz extrapolated to be zero from two internal nodes
+        i = np.arange(1, nx[IZ]-1)
+        dx1 = grid[IX][j+1] - grid[IX][j  ]
+        dx2 = grid[IX][j+2] - grid[IX][j+1]
+        A[gidx([i, j], nx, DIM) + IZ, gidx([i  , j], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
+        A[gidx([i, j], nx, DIM) + IZ, gidx([i+1, j], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
+        rhs[gidx([i, j], nx, DIM) + IZ] = 0
+    elif bc[DIM*0 + IX] == BC_TYPE_FREESLIP:
+        # vz equals to vz in grid point next to bnd
+        i = np.arange(1, nx[IZ]-1)
+        A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
+        A[gidx([i, j], nx, DIM) + IZ, gidx([i, j+1], nx, DIM) + IZ] = -Kcont
+        rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
     # vx = 0
     i = np.arange(0, nx[IZ]-1)
@@ -210,13 +217,20 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc):
     # at x = Lx
     j = nx[IX]-1
 
-    # vz extrapolated to be zero from two internal nodes
-    i = np.arange(1, nx[IZ]-1)
-    dx1 = grid[IX][j] - grid[IX][j-1]
-    dx2 = grid[IX][j-1] - grid[IX][j-2]
-    A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
-    A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
-    rhs[gidx([i, j], nx, DIM) + IZ] = 0
+    if bc[DIM*1 + IX] == BC_TYPE_NOSLIP:
+        # vz extrapolated to be zero from two internal nodes
+        i = np.arange(1, nx[IZ]-1)
+        dx1 = grid[IX][j] - grid[IX][j-1]
+        dx2 = grid[IX][j-1] - grid[IX][j-2]
+        A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (1 + dx1 / (dx1+dx2))
+        A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * dx1 / (dx1+dx2)
+        rhs[gidx([i, j], nx, DIM) + IZ] = 0
+    elif bc[DIM*1 + IX] == BC_TYPE_FREESLIP:
+        # vz equals to vz in grid point next to bnd
+        i = np.arange(1, nx[IZ]-1)
+        A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont
+        A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = -Kcont
+        rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
     # vx = 0
     i = np.arange(0, nx[IZ]-1)
