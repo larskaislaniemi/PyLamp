@@ -31,7 +31,7 @@ if __name__ == "__main__":
     # Configurable options
     nx    =   [64,65]         # use order z,x,y
     L     =   [660e3, 1000e3]
-    tracdens = 40   # how many tracers per element
+    tracdens = 20   # how many tracers per element
 
     # Derived options
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]

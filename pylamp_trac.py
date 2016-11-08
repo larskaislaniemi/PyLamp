@@ -271,6 +271,7 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
 
     if order == 2:
         # TODO: implement as in RK4
+        print ("Warning! RK2 not properly working")
         trac_vel = np.zeros((tr_x.shape[0], DIM))
         tracs_half_h = np.zeros((tr_x.shape[0], DIM))
         tracs_full_h = np.zeros((tr_x.shape[0], DIM))
@@ -284,6 +285,7 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
         return trac_vel, tracs_full_h
 
     elif order == 4:
+        # TODO: Combine two calls to grid2trac() to one
         k1vel = np.zeros((tr_x.shape[0], DIM))
         tmp   = np.zeros((tr_x.shape[0],1))
         k2vel = np.zeros_like(k1vel)
@@ -297,7 +299,7 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
 
         grid2trac(tr_x, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
         k1vel[:,IZ] = tmp[:,0]
-        grid2trac(tr_x, tmp, grids[IX], [vels[IX], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
+        grid2trac(tr_x, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
         k1vel[:,IX] = tmp[:,0]
         #grid2trac(tr_x, k1vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
         
