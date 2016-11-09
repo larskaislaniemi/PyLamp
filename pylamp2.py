@@ -47,14 +47,16 @@ if __name__ == "__main__":
     meshmp =   np.meshgrid(*gridmp, indexing='ij')
 
     # Variable fields
-    f_vel  =   [np.zeros(nx) for i in range(DIM)]  # vx in y-midpoint field
-                                                   # vy in x-midpoint field
+    f_vel  =   [np.zeros(nx) for i in range(DIM)]  # vx in z-midpoint field
+                                                   # vz in x-midpoint field
     f_etas =   np.zeros(nx)    # viscosity in main grid points
     f_T    =   np.zeros(nx)    # temperature in main grid points
     f_rho  =   np.zeros(nx)    # rho in main grid points
+    f_Cp   =   np.zeros(nx)    # Cp in main grid points
     f_P    =   np.zeros(nx)    # pressure in xy-midpoints
     f_etan =   np.zeros(nx)    # viscosity in xy-midpoints
-
+    f_k    =   [np.zeros(nx) for i in range(DIM)]  # kz in z-midpoint field
+                                                   # kx in x-midpoint field
 
     # Tracers
     ntrac = np.prod(nx)*tracdens
@@ -215,6 +217,50 @@ if __name__ == "__main__":
             #dummy = input()
 
     sys.exit()
+
+#
+#  :::: temperature ::::
+#
+#         j
+#
+#   x--v--x--v--x--v--x  v         x:  T
+#   |     |     |     |            v:  qx, kx
+#   o     o     o     o            o:  qz, kz
+#   |     |     |     |
+# i x--v--X--V--x--v--x  v
+#   |     |     |     |
+#   o     O     o     o
+#   |     |     |     |
+#   x--v--x--v--x--v--x  v
+#
+#   o     o     o     o
+#
+#   
+#   qx_i_j = kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j)
+#   qz_i_j = kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j)
+# =>
+#   qx_i_j-1 = kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1)
+#   qz_i-1_j = kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j)
+#
+#
+#   rho_i_j * Cp_i_j * dT_i_j = dt * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
+#
+#   dT_i_j = A_i_j * {
+#              [ kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j) - kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1) ] / (x_i_j - x_i_j-1) + 
+#              [ kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j) - kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j) ] / (x_i_j - x_i-1_j) 
+#   }
+#
+#  A_i_j = dt / (rho_i_j * Cp_i_j)
+#
+#  T_i_j+1:    kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1)
+#  T_i_j  :    -kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1) +
+#              -kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j - x_i_j-1) +
+#              -kz_i_j / (x_i+1_j - x_i_j) / (x_i_j - x_i-1_j) +
+#              -kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j)
+#  T_i_j-1:    kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j - x_i_j-1)
+#  T_i+1_j:    kz_i_j / (x_i+1_j - x_i_j) / (x_i_j - x_i-1_j)
+#  T_i-1_j:    kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j)
+#
 
 # :::: x-stokes ::::
 # For vx-node vx_i+½_j
