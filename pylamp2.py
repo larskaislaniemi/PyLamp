@@ -28,8 +28,12 @@ def pprint(*arg):
 #### MAIN ####
 if __name__ == "__main__":
 
+    ## Configurable options
+    #nx    =   [64,65]         # use order z,x,y
+    #L     =   [660e3, 1000e3]
+    #tracdens = 20   # how many tracers per element
     # Configurable options
-    nx    =   [64,65]         # use order z,x,y
+    nx    =   [128,129]         # use order z,x,y
     L     =   [660e3, 1000e3]
     tracdens = 20   # how many tracers per element
 
@@ -67,20 +71,30 @@ if __name__ == "__main__":
 
 
     ## Some material values and initial values
-    # Density
-    tr_f[:, TR_RHO] = 3300
-    idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
-    idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-    tr_f[idxx & idxz, TR_RHO] = 3340
+
+    ### Falling block
+    ## Density
+    #tr_f[:, TR_RHO] = 3300
+    #idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
+    #idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
+    ##tr_f[idxx & idxz, TR_RHO] = 3340
+    #tr_f[idxx & idxz, TR_RHO] = 3260
 
     ## ... sticky air test
     #idxz2 = tr_x[:, IZ] < 50e3
-    #tr_f[idxz2, TR_RHO] = 1000
+    #tr_f[idxz2, TR_RHO] = 1
     #tr_f[idxz2, TR_ETA] = 1e17
 
-    # Viscosity
-    tr_f[:, TR_ETA] = 1e19
-    tr_f[idxx & idxz, TR_ETA] = 1e19
+    ## Viscosity
+    #tr_f[:, TR_ETA] = 1e19
+    #tr_f[idxx & idxz, TR_ETA] = 1e19
+
+    ### RT instability
+    tr_f[:, TR_RHO] = 3300
+    idxz = (tr_x[:, IZ] < 150e3)
+    tr_f[idxz, TR_RHO] = 3340
+
+    tr_f[:, TR_ETA] = 1e20
 
     # Passive markers
     inixdiv = np.linspace(0, L[IX], 10)
@@ -167,7 +181,14 @@ if __name__ == "__main__":
 
             ax = fig.add_subplot(221)
             #ax.pcolormesh(newvel[0])
-            ax.pcolormesh(f_rho)
+            #ax.pcolormesh(f_rho)
+            #xi = np.linspace(0, L[IX], 100)
+            #yi = np.linspace(0, L[IZ], 100)
+            #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_RHO], (xi[None,:], yi[:,None]), method='linear')
+            #cs = ax.contourf(xi,yi,zi,cmap=plt.cm.jet,levels=[0,980,1020,3240,3280,3300,3320])
+            #ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='.', linewidths=(0,))
+            nskip=2
+            ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
 
             #ax = fig.add_subplot(222)
             #ax.pcolormesh(newvel[1])
@@ -180,7 +201,7 @@ if __name__ == "__main__":
 #            ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
 
             ax = fig.add_subplot(223)
-            ax.quiver(tr_x[::1,IX], tr_x[::1,IZ], trac_vel[::1,IX]*tstep, trac_vel[::1,IZ]*tstep, angles='xy', scale_units='xy', scale=0.5)
+            ax.quiver(tr_x[::1,IX], tr_x[::1,IZ], trac_vel[::1,IX]*tstep, trac_vel[::1,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
             ax.set_xticks(grid[IX])
             ax.set_yticks(grid[IZ])
             ax.xaxis.grid()
@@ -252,6 +273,7 @@ if __name__ == "__main__":
 #
 #  A_i_j = dt / (rho_i_j * Cp_i_j)
 #
+#  Components (multiply all by A_i_j):
 #  T_i_j+1:    kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1)
 #  T_i_j  :    -kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1) +
 #              -kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j - x_i_j-1) +
@@ -261,6 +283,15 @@ if __name__ == "__main__":
 #  T_i+1_j:    kz_i_j / (x_i+1_j - x_i_j) / (x_i_j - x_i-1_j)
 #  T_i-1_j:    kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j)
 #
+#  BC:
+#    x = 0 (, z = 0):
+#      T=Tx0
+#      or 
+#      k*dT/dx = qx0 
+#      i.e. k_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j) = qx0
+#       =>  T_i_j+1:  k_i_j / (x_i_j+1 - x_i_j)
+#           T_i_j  : -k_i_j / (x_i_j+1 - x_i_j)
+#           rhs    :  qx0
 
 # :::: x-stokes ::::
 # For vx-node vx_i+½_j
@@ -284,6 +315,12 @@ if __name__ == "__main__":
 
 # 2 * (Sxx_i+½_j+½ - Sxx_i+½_j-½) / (x_j+1 - x_j-1)  +  (Sxy_i+1_j - Sxy_i_j) / (y_i+1 - y_i)  +  2 * (-P_i+½_j+½ + P_i+½_j-½) / (x_j+1 - x_j-1)
 # = - ½ * (rho_i_j + rho_i+1_j) * g_x
+#
+#  Correction term by Kaus or Duretz et al:
+#    d[Sxy] / dy + T * dt * (d[rho] / dx) * vx * gx = -rho*gx (???)
+#    (Sxy_i+1_j - Sxy_i_j) / (y_i+1 - y_i)  +  T * dt * ((rho_i_j+1 - rho_i_j) / (x_j+1 - x_j)) * vx_i_j * gx
+#
+#  T = theta = 0.5(?)
 #
 # =>
 #    2 * (Sxx_i+½_j+½ - Sxx_i+½_j-½) / (x_j+1 - x_j-1) 
