@@ -3,16 +3,19 @@
 from pylamp_const import *
 import pylamp_stokes 
 import pylamp_trac
+import pylamp_diff
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import scipy.sparse.linalg
-#import itertools
 #from mpi4py import MPI
 import importlib
+import vtk
+from vtk.util import numpy_support
 
 importlib.reload(pylamp_stokes)
 importlib.reload(pylamp_trac)
+importlib.reload(pylamp_diff)
 
 def pprint(*arg):
     comm = MPI.COMM_WORLD
@@ -28,14 +31,15 @@ def pprint(*arg):
 #### MAIN ####
 if __name__ == "__main__":
 
-    ## Configurable options
-    #nx    =   [64,65]         # use order z,x,y
-    #L     =   [660e3, 1000e3]
-    #tracdens = 20   # how many tracers per element
     # Configurable options
-    nx    =   [128,129]         # use order z,x,y
+    nx    =   [33,50]         # use order z,x,y
     L     =   [660e3, 1000e3]
-    tracdens = 20   # how many tracers per element
+    tracdens = 40   # how many tracers per element
+    do_stokes = True
+    do_advect = True
+    do_heatdiff = True
+
+    Tref  =   273         # reference temperature used for thermal expansion
 
     # Derived options
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -89,14 +93,25 @@ if __name__ == "__main__":
     #tr_f[:, TR_ETA] = 1e19
     #tr_f[idxx & idxz, TR_ETA] = 1e19
 
-    ### RT instability
-    tr_f[:, TR_RHO] = 3300
-    idxz = (tr_x[:, IZ] < 150e3)
-    tr_f[idxz, TR_RHO] = 3340
+    #### RT instability
+    #tr_f[:, TR_IRH] = 3300
+    #idxz = (tr_x[:, IZ] < 150e3)
+    #tr_f[idxz, TR_IRH] = 3340
+    #tr_f[:, TR_ALP] = 0.0
+
+    #### lava lamp
+    tr_f[:, TR_IRH] = 3300
+    tr_f[:, TR_ALP] = 3.5e-5
 
     tr_f[:, TR_ETA] = 1e20
 
-    # Passive markers
+    tr_f[:, TR_HCD] = 4.0
+    tr_f[:, TR_HCP] = 1250
+    tr_f[:, TR_TMP] = 273
+
+
+
+    ## Passive markers
     inixdiv = np.linspace(0, L[IX], 10)
     inizdiv = np.linspace(0, L[IZ], 10)
     for i in range(0,9,2):
@@ -106,109 +121,199 @@ if __name__ == "__main__":
     for i in range(0,9,2):
         tr_f[(tr_x[:,IX] >= inixdiv[i]) & (tr_x[:,IX] < inixdiv[i+1]), TR_MRK] *= -1
 
-
     it = 0
     totaltime = 0
     while (True):
         it += 1
         print("\n --- Time step:", it, "---")
 
-        print("Properties trac2grid")
-        pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, 
-                avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
-        pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+        print("Calculate physical properties")
+        tr_f[:, TR_RHO] = ((tr_f[:, TR_ALP] * (tr_f[:, TR_TMP] - Tref) + 1) / tr_f[:, TR_IRH])**(-1)
 
-        print("Build stokes")
-        bcstokes = [ \
-                pylamp_stokes.BC_TYPE_FREESLIP, \
-                pylamp_stokes.BC_TYPE_NOSLIP, \
-                pylamp_stokes.BC_TYPE_NOSLIP, \
-                pylamp_stokes.BC_TYPE_NOSLIP  \
-                ]  # idx is DIM*side + DIR 
-        (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
+        if it == 1 or do_advect == True:
+            print("Properties trac2grid")
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_etas, f_Cp, f_T], nx, 
+                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+        elif do_heatdiff == True:
+            print("Properties trac2grid")
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_TMP]], mesh, grid, [f_rho, f_T], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC])
 
-        print("Solve stokes")
-        # Solve it!
-        #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
-        x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+        if do_stokes:
+            print("Build stokes")
+            bcstokes = [ \
+                    pylamp_stokes.BC_TYPE_FREESLIP, \
+                    pylamp_stokes.BC_TYPE_NOSLIP, \
+                    pylamp_stokes.BC_TYPE_NOSLIP, \
+                    pylamp_stokes.BC_TYPE_NOSLIP  \
+                    ]  # idx is DIM*side + DIR 
+            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
 
-        (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+            print("Solve stokes")
+            # Solve it!
+            #x = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs)[0]
+            x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
-        tstep = 0.25 * np.min(dx) / np.max(newvel)
+            (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+
+            tstep_stokes = 0.25 * np.min(dx) / np.max(newvel)
+
+        if do_heatdiff:
+            diffusivity = f_k[IZ] / (f_rho * f_Cp)
+            tstep_temp = 0.25 * np.min(dx)**2 / np.max(2*diffusivity)
+
+        if do_heatdiff and do_advect:
+            tstep = min(tstep_temp, tstep_stokes)
+        elif do_heatdiff:
+            tstep = tstep_temp
+        else:
+            tstep = tstep_stokes
+
         totaltime += tstep
-        print("Tracer advection")
         print("   time step =", tstep/SECINKYR, "kyrs")
         print("   time now  =", totaltime/SECINKYR, "kyrs")
 
-        # for interpolation of velocity from grid to tracers we need
-        # all tracers to be within the grid and so we need to extend the 
-        # (vz,vx) grid at x=0 and z=0 boundaries
-        preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
-        grids = [                                                   \
-                [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
-                [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
-                ]
-        vels  = [                                                  \
-                np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
-                np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
-                ]
 
-        if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
-            vels[IX][0,:] = 0
-        elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
-            vels[IX][0,:] = vels[IX][1,:]
-        vels[IZ][0,:] = 0
+        if do_heatdiff:
+            print("Build heatdiff")
+            bcheat = [[]] * 4
+            bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+            bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+            bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+            bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
 
-        if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
-            vels[IZ][:,0] = 0
-        elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
-            vels[IZ][:,0] = vels[IZ][:,1]
-        vels[IX][:,0] = 0
+            bcheatvals = [[]] * 4
+            bcheatvals[DIM*0 + IZ] = 273
+            bcheatvals[DIM*1 + IZ] = 1623
+            bcheatvals[DIM*0 + IX] = 0
+            bcheatvals[DIM*1 + IX] = 0
 
-        trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
-        #trac_vel, tracs_new = pylamp_trac.RK(tr_x, gridmp, newvel, nx, tstep)
-        tr_x[:,:] = tracs_new[:,:]
+            (A, rhs) = pylamp_diff.makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bcheat, bcheatvals, tstep)
 
-        # do not allow tracers to advect outside the domain
-        for d in range(DIM):
-            tr_x[tr_x[:,d] <= 0, d] = EPS
-            tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
+            print("Solve diffusion")
 
-        if it % 100 == 1:
+            x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+
+            newtemp = pylamp_diff.x2t(x, nx)
+            newdT = newtemp - f_T
+
+            trac_dT = np.zeros((tr_x.shape[0], 1))
+
+            print("dT grid2trac")
+            pylamp_trac.grid2trac(tr_x, trac_dT, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR)
+            tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + trac_dT[:,0]
+
+        if do_advect:
+            print("Tracer advection")
+            # for interpolation of velocity from grid to tracers we need
+            # all tracers to be within the grid and so we need to extend the 
+            # (vz,vx) grid at x=0 and z=0 boundaries
+            preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
+            grids = [                                                   \
+                    [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
+                    [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
+                    ]
+            vels  = [                                                  \
+                    np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
+                    np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
+                    ]
+
+            if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+                vels[IX][0,:] = 0
+            elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+                vels[IX][0,:] = vels[IX][1,:]
+            vels[IZ][0,:] = 0
+
+            if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+                vels[IZ][:,0] = 0
+            elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+                vels[IZ][:,0] = vels[IZ][:,1]
+            vels[IX][:,0] = 0
+
+            trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
+            tr_x[:,:] = tracs_new[:,:]
+
+            # do not allow tracers to advect outside the domain
+            for d in range(DIM):
+                tr_x[tr_x[:,d] <= 0, d] = EPS
+                tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
+
+        #vtkdata = numpy_support.numpy_to_vtk(num_array=f_T.ravel(), deep=True, array_type=vtk.VTK_FLOAT)
+        #
+        #vtkxcoords = vtk.vtkFloatArray()
+        #vtkzcoords = vtk.vtkFloatArray()
+        #vtkycoords = vtk.vtkFloatArray()
+        #for i in grid[IZ]:
+        #    vtkzcoords.InsertNextValue(i)
+        #for j in grid[IX]:
+        #    vtkxcoords.InsertNextValue(j)
+        #if DIM == 3:
+        #    for k in grid[IY]:
+        #        vtkycoords.InsertNextValue(k)
+        #else:
+        #    vtkycoords.InsertNextValue(0)
+
+        #vtkrlg = vtk.vtkRectilinearGrid()
+        #if DIM == 2:
+        #    vtkdim = [nx[IX], 1, nx[IZ]]
+        #else:
+        #    vtkdim = [nx[IX], nx[IY], nx[IZ]]
+        #vtkrlg.SetDimensions(*vtkdim)
+        #vtkrlg.SetZCoordinates(vtkzcoords)
+        #vtkrlg.SetXCoordinates(vtkxcoords)
+        #vtkrlg.SetYCoordinates(vtkycoords)
+        #vtkarr = vtk.vtkShortArray()
+        #vtkarr.SetNumberOfComponents(1)
+
+        if it % 1 == 1:
+            print("Plot")
+            plt.close('all')
+            cs = plt.pcolormesh(f_T)
+            plt.colorbar(cs)
+            plt.show()
+
+
+        if it % 20 == 1:
             print("Plot")
             plt.close('all')
             fig = plt.figure()
 
             ax = fig.add_subplot(221)
             #ax.pcolormesh(newvel[0])
-            #ax.pcolormesh(f_rho)
+            cs = ax.pcolormesh(f_rho)
+            plt.colorbar(cs)
             #xi = np.linspace(0, L[IX], 100)
             #yi = np.linspace(0, L[IZ], 100)
             #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_RHO], (xi[None,:], yi[:,None]), method='linear')
             #cs = ax.contourf(xi,yi,zi,cmap=plt.cm.jet,levels=[0,980,1020,3240,3280,3300,3320])
             #ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='.', linewidths=(0,))
-            nskip=2
-            ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
+            #nskip=10
+            #ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
 
             #ax = fig.add_subplot(222)
             #ax.pcolormesh(newvel[1])
             #ax.pcolormesh(np.log10(f_etan))
 
-            ax = fig.add_subplot(222)
-            vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
-            vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
-            ax.pcolormesh(vzgrid)
-#            ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
+            if do_advect:
+                ax = fig.add_subplot(222)
+                vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
+                vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
+                cs = ax.pcolormesh(vzgrid)
+                plt.colorbar(cs)
+                #ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
 
-            ax = fig.add_subplot(223)
-            ax.quiver(tr_x[::1,IX], tr_x[::1,IZ], trac_vel[::1,IX]*tstep, trac_vel[::1,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
-            ax.set_xticks(grid[IX])
-            ax.set_yticks(grid[IZ])
-            ax.xaxis.grid()
-            ax.yaxis.grid()
-            #ax = fig.add_subplot(224)
-            #ax.pcolormesh(f_rho)
-            #plt.show()
+                ax = fig.add_subplot(223)
+                stride = 20
+                ax.quiver(tr_x[::stride,IX], tr_x[::stride,IZ], trac_vel[::stride,IX]*tstep, trac_vel[::stride,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
+                ax.set_xticks(grid[IX])
+                ax.set_yticks(grid[IZ])
+                ax.xaxis.grid()
+                ax.yaxis.grid()
+                #ax = fig.add_subplot(224)
+                #ax.pcolormesh(f_rho)
+                #plt.show()
 
             ### divergence field
             #ax = fig.add_subplot(222)
@@ -227,11 +332,13 @@ if __name__ == "__main__":
             #ax = fig.add_subplot(224)
             #ax.tripcolor(tr_x[:,IX], tr_x[:,IZ], tr_f[:,TR_MRK])
 
+    
             ax = fig.add_subplot(224)
             xi = np.linspace(0,L[IX],100)
             yi = np.linspace(0,L[IZ],100)
-            zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_MRK], (xi[None,:], yi[:,None]), method='linear')
+            zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
             cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
+            plt.colorbar(cs)
 
             plt.show()
 
@@ -256,29 +363,50 @@ if __name__ == "__main__":
 #
 #   o     o     o     o
 #
-#   
-#   qx_i_j = kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j)
-#   qz_i_j = kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j)
-# =>
-#   qx_i_j-1 = kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1)
-#   qz_i-1_j = kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j)
+
+
+#   [ kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j)  -  kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1) ] / (x_i_j+½ - x_i_j-½)  +
+#   [ kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j)  -  kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j) ] / (x_i+½_j - x_i-½_j)
+#    = rho_i_j * Cp_i_j * (T_i_j - T_i_j^old) / dt
 #
+#   T_i_j+1 : kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j+½ - x_i_j-½)
+#   T_i_j   : -kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j+½ - x_i_j-½) +
+#             -kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j+½ - x_i_j-½) +
+#             -kz_i_j / (x_i+1_j - x_i_j) / (x_i+½_j - x_i-½_j) +
+#             -kz_i-1_j / (x_i_j - x_i-1_j) / (x_i+½_j - x_i-½_j)
+#   T_i_j-1 : kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j+½ - x_i_j-½)
+#   T_i+1_j : kz_i_j / (x_i+1_j - x_i_j) / (x_i+½_j - x_i-½_j) 
+#   T_i-1_j : kz_i-1_j / (x_i_j - x_i-1_j) / (x_i+½_j - x_i-½_j)
+
+
+#   
+#   qx_i_j = -kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j)
+#   qz_i_j = -kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j)
+# =>
+#   qx_i_j-1 = -kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1)
+#   qz_i-1_j = -kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j)
 #
 #   rho_i_j * Cp_i_j * dT_i_j = dt * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
 #
-#   dT_i_j = A_i_j * {
-#              [ kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j) - kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1) ] / (x_i_j - x_i_j-1) + 
-#              [ kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j) - kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j) ] / (x_i_j - x_i-1_j) 
-#   }
+#   if A_i_j = dt / (rho_i_j * Cp_i_j):
+#   
+#     dT_i_j = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
+#     T_i_j - T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
+#     -T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] - T_i_j
+#     T_i_j^old = -A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] + T_i_j
 #
-#  A_i_j = dt / (rho_i_j * Cp_i_j)
+#   T_i_j^old = -A_i_j * {
+#              [ -kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j) + -kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1) ] / (x_i_j - x_i_j-1) + 
+#              [ -kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j) + -kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j) ] / (x_i_j - x_i-1_j) 
+#   } + T_i_j
 #
-#  Components (multiply all by A_i_j):
+#  Components 
 #  T_i_j+1:    kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1)
 #  T_i_j  :    -kx_i_j / (x_i_j+1 - x_i_j) / (x_i_j - x_i_j-1) +
 #              -kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j - x_i_j-1) +
 #              -kz_i_j / (x_i+1_j - x_i_j) / (x_i_j - x_i-1_j) +
-#              -kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j)
+#              -kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j) +
+#              1
 #  T_i_j-1:    kx_i_j-1 / (x_i_j - x_i_j-1) / (x_i_j - x_i_j-1)
 #  T_i+1_j:    kz_i_j / (x_i+1_j - x_i_j) / (x_i_j - x_i-1_j)
 #  T_i-1_j:    kz_i-1_j / (x_i_j - x_i-1_j) / (x_i_j - x_i-1_j)

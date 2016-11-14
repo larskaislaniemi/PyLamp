@@ -8,14 +8,14 @@ import sys
 BC_TYPE_FIXTEMP = 0
 BC_TYPE_FIXFLOW = 1
 
-def gidx(idxs, nx, dim):
+def gidx(idxs, nx):
     # Global index for the matrix in linear system of equations
-    #   gidx = ...  +  iz * ny * nx * DIM  +  ix * ny * DIM  +  iy * DIM  +  ieq
+    #   gidx = ...  +  iz * ny * nx  +  ix * ny  +  iy 
     # idxs is a list of integers (length DIM) or 1D numpy arrays (all of same
     # length), or a combination
 
-    if len(idxs) != dim:
-        raise Exception("num of idxs != dimensions")
+    dim = len(nx)
+
     if dim == 2:
         ret = idxs[IZ] * nx[IX] + idxs[IX] 
     else:
@@ -43,7 +43,7 @@ def printmatrix(arr, nx):
     sys.stdout.write("\n")
 
     for i in range(arr.shape[0]):
-        ieq = i % 3
+        ieq = i % 1
         inode = int(i / 3)
         irow = int(inode / nx[1])
         icol = inode % nx[1]
@@ -74,13 +74,11 @@ def printmatrix(arr, nx):
 def x2t(x, nx):
     # reshape solution from diffusion solver to temperature mesh
 
-    dof = np.prod(nx)
-
     newtemp = x.reshape(nx)
 
     return newtemp
 
-def makeDiffusionMatrix(nx, grid, f_kx, f_kz, f_Cp, f_rho, bctype, bcvalue):
+def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bc, bcvalue, tstep):
     # Form the solution matrix for diffusion eq
     #
     # Currently can do only 2D
@@ -88,6 +86,7 @@ def makeDiffusionMatrix(nx, grid, f_kx, f_kz, f_Cp, f_rho, bctype, bcvalue):
 
     dof = np.prod(nx)
     A   = lil_matrix((dof, dof))
+    A   = np.zeros((dof,dof))
     rhs = np.zeros(dof)
 
     #### boundaries: ####
@@ -97,80 +96,84 @@ def makeDiffusionMatrix(nx, grid, f_kx, f_kz, f_Cp, f_rho, bctype, bcvalue):
 
     if bc[DIM*0 + IZ] == BC_TYPE_FIXTEMP:
         j = np.arange(0, nx[IX])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = 1
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IZ]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = 1
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IZ]
 
     elif bc[DIM*0 + IZ] == BC_TYPE_FIXFLOW:
         j = np.arange(0, nx[IX])
-        A[gidx([i, j], nx, DIM), gidx([i+1, j], nx, DIM)] = f_kz[i, j] / (grid[IZ][i+1] - grid[IZ][i])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = -f_kz[i, j] / (grid[IZ][i+1] - grid[IZ][i])
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IZ]
+        A[gidx([i, j], nx), gidx([i+1, j], nx)] = f_k[IZ][i, j] / (grid[IZ][i+1] - grid[IZ][i])
+        A[gidx([i, j], nx), gidx([i, j], nx)] = -f_k[IZ][i, j] / (grid[IZ][i+1] - grid[IZ][i])
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IZ]
 
     # at z = zL
     i = nx[IZ]-1
 
     if bc[DIM*1 + IZ] == BC_TYPE_FIXTEMP:
         j = np.arange(0, nx[IX])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = 1
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IZ]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = 1
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IZ]
 
     elif bc[DIM*1 + IZ] == BC_TYPE_FIXFLOW:
         j = np.arange(0, nx[IX])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = f_kz[i-1, j] / (grid[IZ][i] - grid[IZ][i-1])
-        A[gidx([i, j], nx, DIM), gidx([i-1, j], nx, DIM)] = -f_kz[i-1, j] / (grid[IZ][i] - grid[IZ][i-1])
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*1 + IZ]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = f_k[IZ][i-1, j] / (grid[IZ][i] - grid[IZ][i-1])
+        A[gidx([i, j], nx), gidx([i-1, j], nx)] = -f_k[IZ][i-1, j] / (grid[IZ][i] - grid[IZ][i-1])
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IZ]
 
     # at x = 0
     j = 0
 
     if bc[DIM*0 + IX] == BC_TYPE_FIXTEMP:
         i = np.arange(0, nx[IZ])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = 1
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IX]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = 1
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IX]
 
     elif bc[DIM*0 + IX] == BC_TYPE_FIXFLOW:
         i = np.arange(0, nx[IZ])
-        A[gidx([i, j], nx, DIM), gidx([i, j+1], nx, DIM)] = f_kx[i, j] / (grid[IX][j+1] - grid[IX][j])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = -f_kx[i, j] / (grid[IX][j+1] - grid[IX][j])
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IX]
+        A[gidx([i, j], nx), gidx([i, j+1], nx)] = f_k[IX][i, j] / (grid[IX][j+1] - grid[IX][j])
+        A[gidx([i, j], nx), gidx([i, j], nx)] = -f_k[IX][i, j] / (grid[IX][j+1] - grid[IX][j])
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IX]
 
-    # at z = zL
+    # at x = xL
     j = nx[IX]-1
 
     if bc[DIM*1 + IX] == BC_TYPE_FIXTEMP:
         i = np.arange(0, nx[IZ])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = 1
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*0 + IX]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = 1
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IX]
 
     elif bc[DIM*1 + IX] == BC_TYPE_FIXFLOW:
         i = np.arange(0, nx[IZ])
-        A[gidx([i, j], nx, DIM), gidx([i, j], nx, DIM)] = f_kx[i, j-1] / (grid[IX][j] - grid[IX][j-1])
-        A[gidx([i, j], nx, DIM), gidx([i-1, j], nx, DIM)] = -f_kz[i, j-1] / (grid[IX][j] - grid[IX][j-1])
-        rhs[gidx([i, j], nx, DIM)] = bcvalue[DIM*1 + IX]
+        A[gidx([i, j], nx), gidx([i, j], nx)] = f_k[IX][i, j-1] / (grid[IX][j] - grid[IX][j-1])
+        A[gidx([i, j], nx), gidx([i, j-1], nx)] = -f_k[IZ][i, j-1] / (grid[IX][j] - grid[IX][j-1])
+        rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IX]
 
 
     ### rest of the points
     
     iset = np.arange(1, nx[IZ]-1)
     jset = np.arange(1, nx[IX]-1)
-    ijset = np.meshgrid(iset, jset)
+    ijset = np.meshgrid(iset, jset, indexing='ij')
     i = ijset[IZ].flatten()
     j = ijset[IX].flatten()
     
-    mat_row = gidx([i, j], nx, DIM)
+    mat_row = gidx([i, j], nx)
 
     precoef = tstep / (f_rho[i, j] * f_Cp[i, j])
 
-    A[mat_row, gidx([i  , j+1], nx, DIM)] = f_kx[i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (grid[IX][j] - grid[IX][j-1])
-    A[mat_row, gidx([i  , j-1], nx, DIM)] = f_kx[i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (grid[IX][j] - grid[IX][j-1])
-    A[mat_row, gidx([i+1, j  ], nx, DIM)] = f_kz[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (grid[IZ][i] - grid[IZ][i-1])
-    A[mat_row, gidx([i-1, j  ], nx, DIM)] = f_kz[i-1, j  ] / (grid[IZ][i] - grid[IX][i-1]) / (grid[IZ][i] - grid[IZ][i-1])
-    A[mat_row, gidx([i  , j  ], nx, DIM)] = \
-            -f_kx[i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (grid[IX][j] - grid[IX][j-1]) + \
-            -f_kx[i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (grid[IX][j] - grid[IX][j-1]) + \
-            -f_kz[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (grid[IZ][i] - grid[IZ][i-1]) + \
-            -f_kz[i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (gird[IZ][i] - grid[IZ][i-1])
+    A[mat_row, gidx([i  , j+1], nx)] = precoef * f_k[IX][i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (gridmp[IX][j] - gridmp[IX][j-1])
+    A[mat_row, gidx([i  , j-1], nx)] = precoef * f_k[IX][i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (gridmp[IX][j] - gridmp[IX][j-1])
+    A[mat_row, gidx([i+1, j  ], nx)] = precoef * f_k[IZ][i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (gridmp[IZ][i] - gridmp[IZ][i-1])
+    A[mat_row, gidx([i-1, j  ], nx)] = precoef * f_k[IZ][i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (gridmp[IZ][i] - gridmp[IZ][i-1])
+    A[mat_row, gidx([i  , j  ], nx)] = \
+            precoef * (                          \
+            -f_k[IX][i  , j  ] / (grid[IX][j+1] - grid[IX][j]) / (gridmp[IX][j] - gridmp[IX][j-1]) + \
+            -f_k[IX][i  , j-1] / (grid[IX][j] - grid[IX][j-1]) / (gridmp[IX][j] - gridmp[IX][j-1]) + \
+            -f_k[IZ][i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (gridmp[IZ][i] - gridmp[IZ][i-1]) + \
+            -f_k[IZ][i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (gridmp[IZ][i] - gridmp[IZ][i-1])   \
+            ) - 1
 
-    rhs[mat_row] = 0
+    rhs[mat_row] = -f_T[i, j] 
+
+    #printmatrix(A, nx)
                 
     return (A, rhs)

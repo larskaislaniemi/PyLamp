@@ -24,10 +24,15 @@ SECINMYR = SECINYR * 1e6
 
 
 # Tracer constants
-NFTRAC = 3      # number of tracer functions
+NFTRAC = 8      # number of tracer functions
 TR_RHO = 0      # indices for tracer functions: density
 TR_ETA = 1      # viscosity
 TR_MRK = 2      # passive marker
+TR_TMP = 3      # temperature
+TR_HCD = 4      # heat conductivity
+TR_HCP = 5      # heat capacity
+TR_IRH = 6      # inherent density
+TR_ALP = 7      # coefficient of thermal expansion
 
 
 # Numerical constants
