@@ -13,6 +13,7 @@ import scipy.sparse.linalg
 import importlib
 #import vtk
 #from vtk.util import numpy_support
+from scipy.stats import gaussian_kde
 
 importlib.reload(pylamp_stokes)
 importlib.reload(pylamp_trac)
@@ -34,19 +35,22 @@ def pprint(*arg):
 if __name__ == "__main__":
 
     # Configurable options
-    nx    =   [33,50]         # use order z,x,y
+    nx    =   [66,100]         # use order z,x,y
     L     =   [660e3, 1000e3]
     tracdens = 40   # how many tracers per element
-    do_stokes = False
-    do_advect = False
+    do_stokes = True
+    do_advect = True
     do_heatdiff = True
     tstep_adv_max = 50e9 * SECINYR
     tstep_adv_min = 50e-9 * SECINYR
     tstep_dif_max = 50e9 * SECINYR
     tstep_dif_min = 50e-9 * SECINYR
     output_file = False
-    output_screen = False
-    tdep_rho = False
+    output_screen = True
+    output_vtk = False
+    output_stride = 10
+    tdep_rho = True
+    force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
 
     Tref  =   273         # reference temperature used for thermal expansion
 
@@ -99,11 +103,11 @@ if __name__ == "__main__":
     #tr_f[idxz2, TR_RHO] = 1
     #tr_f[idxz2, TR_ETA] = 1e17
 
-    # Viscosity
-    #tr_f[:, TR_ETA] = 1e19
-    #tr_f[idxx & idxz, TR_ETA] = 1e23
+    ## Viscosity
+    #tr_f[:, TR_ETA] = 1e17
+    #tr_f[idxx & idxz, TR_ETA] = 1e20
 
-    ### RT instability, double-sided
+    #### RT instability, double-sided
     #tr_f[:, TR_IRH] = 3300
     #idxz = (tr_x[:, IZ] < 150e3)
     #tr_f[idxz, TR_IRH] = 3340
@@ -115,23 +119,24 @@ if __name__ == "__main__":
     #tr_f[idxz, TR_ETA] = 1e20
 
     ### heat diffusion test
-    tr_f[:, TR_IRH] = 3300
-    tr_f[:, TR_ALP] = 0.0
-    tr_f[:, TR_HCD] = 4.0
-    tr_f[:, TR_HCP] = 1250
-    tr_f[:, TR_TMP] = 273
-
-    
-
-    ##### lava lamp
     #tr_f[:, TR_IRH] = 3300
-    #tr_f[:, TR_ALP] = 3.5e-5
-
-    #tr_f[:, TR_ETA] = 1e20
-
+    #tr_f[:, TR_ALP] = 0.0
     #tr_f[:, TR_HCD] = 4.0
     #tr_f[:, TR_HCP] = 1250
     #tr_f[:, TR_TMP] = 273
+
+    
+
+    #### lava lamp
+    tr_f[:, TR_IRH] = 3300
+    tr_f[:, TR_ALP] = 3.5e-5
+
+    tr_f[:, TR_ETA] = 1e18
+    tr_f[tr_x[:,IZ] > 560e3, TR_ETA] = 1e19
+
+    tr_f[:, TR_HCD] = 4.0
+    tr_f[:, TR_HCP] = 1250
+    tr_f[:, TR_TMP] = 273
 
 
 
@@ -177,17 +182,15 @@ if __name__ == "__main__":
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
 
         elif do_heatdiff:
-            if it == 1 or tdep_rho:
+            if it == 1 or tdep_rho or force_trac2grid_T:
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_Cp, f_T], nx, 
                         avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
             else:
                 ### after the first time step (if no temperature dependen rho) we only need to interpolate temperature, since there is no advection
-                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_TMP]], mesh, grid, [f_T], nx, 
-                        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
                 ### actually, let's skip that, too, and copy the grid directly
-                #f_T = newtemp #testing above...
+                f_T = newtemp
         
         
         
@@ -273,12 +276,6 @@ if __name__ == "__main__":
                 #subgrid_corr_T = old_tr_f[:, TR_TMP] - (old_tr_f[:, TR_TMP] - tr_f[:, TR_TMP]) * np.exp(-d * tstep / subgrid_corr_dt0)
                 ## compensation at eulerian nodes
 
-                
-
-                
-
-            print("max T in tracers: ", np.max(tr_f[:, TR_TMP]))
-            print("max change in tracers: ", np.max(tr_f[:,TR_TMP]-old_tr_f[:,TR_TMP]))
 
         if do_advect:
             print("Tracer advection")
@@ -342,7 +339,8 @@ if __name__ == "__main__":
         #vtkarr = vtk.vtkShortArray()
         #vtkarr.SetNumberOfComponents(1)
 
-        pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:04d}.vtk".format(it))
+        if output_vtk:
+            pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:04d}.vtk".format(it))
 
         if it % 1 == 1:
             print("Plot")
@@ -352,81 +350,103 @@ if __name__ == "__main__":
             plt.show()
 
 
-        if it % 1 == 0:
-            print("Plot")
-            plt.close('all')
-            fig = plt.figure()
+        if output_screen or output_file:
+            if (it-1) % output_stride == 0:
+                print("Plot")
+                plt.close('all')
+                fig = plt.figure()
 
-            ax = fig.add_subplot(221)
-            #ax.pcolormesh(newvel[0])
-            cs = ax.pcolormesh(f_rho)
-            plt.colorbar(cs)
-            #xi = np.linspace(0, L[IX], 100)
-            #yi = np.linspace(0, L[IZ], 100)
-            #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_RHO], (xi[None,:], yi[:,None]), method='linear')
-            #cs = ax.contourf(xi,yi,zi,cmap=plt.cm.jet,levels=[0,980,1020,3240,3280,3300,3320])
-            #ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='.', linewidths=(0,))
-            #nskip=10
-            #ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
+                ax = fig.add_subplot(221)
+                if do_advect:
+                    #ax.pcolormesh(newvel[0])
+                    #cs = ax.pcolormesh(f_rho)
+                    cs = ax.pcolormesh(np.log10(f_etas))
+                    plt.colorbar(cs)
+                    #xi = np.linspace(0, L[IX], 100)
+                    #yi = np.linspace(0, L[IZ], 100)
+                    #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_RHO], (xi[None,:], yi[:,None]), method='linear')
+                    #cs = ax.contourf(xi,yi,zi,cmap=plt.cm.jet,levels=[0,980,1020,3240,3280,3300,3320])
+                    #ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='.', linewidths=(0,))
+                    #nskip=10
+                    #ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
+                elif do_heatdiff:
+                    cs = plt.scatter(tr_x[:,IX], tr_x[:,IZ], marker='+', s=50, linewidths=4, c=tr_f[:,TR_TMP], cmap=plt.cm.coolwarm)
+                    plt.colorbar(cs)
+                    ax.set_xticks(grid[IX])
+                    ax.set_yticks(grid[IZ])
+                    ax.xaxis.grid()
+                    ax.yaxis.grid()
 
-            #ax = fig.add_subplot(222)
-            #ax.pcolormesh(newvel[1])
-            #ax.pcolormesh(np.log10(f_etan))
+                #print("calc")
+                #idxz = tr_x[:, IZ] > 510e3
+                #xy = np.vstack([tr_x[idxz,IX],tr_x[idxz,IZ]])
+                #z = gaussian_kde(xy)(xy)
+                #print("plot")
+                #cs = ax.scatter(tr_x[idxz,IX], tr_x[idxz, IZ], c=z, s=100, edgecolor='')
+                #plt.colorbar(cs)
 
-            if do_advect:
-                ax = fig.add_subplot(222)
-                vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
-                vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
-                cs = ax.pcolormesh(vzgrid)
-                plt.colorbar(cs)
-                #ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
 
-                ax = fig.add_subplot(223)
-                stride = 20
-                ax.quiver(tr_x[::stride,IX], tr_x[::stride,IZ], trac_vel[::stride,IX]*tstep, trac_vel[::stride,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
-                ax.set_xticks(grid[IX])
-                ax.set_yticks(grid[IZ])
-                ax.xaxis.grid()
-                ax.yaxis.grid()
+
+                #ax = fig.add_subplot(222)
+                #ax.pcolormesh(newvel[1])
+                #ax.pcolormesh(np.log10(f_etan))
+
+                if do_advect:
+                    ax = fig.add_subplot(222)
+                    #vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
+                    #vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
+                    #cs = ax.pcolormesh(vzgrid)
+                    #plt.colorbar(cs)
+                    #ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
+                    cs = ax.pcolormesh(f_rho)
+                    plt.colorbar(cs)
+
+                    ax = fig.add_subplot(223)
+                    stride = 20
+                    ax.quiver(tr_x[::stride,IX], tr_x[::stride,IZ], trac_vel[::stride,IX]*tstep, trac_vel[::stride,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
+                    ax.set_xticks(grid[IX])
+                    ax.set_yticks(grid[IZ])
+                    ax.xaxis.grid()
+                    ax.yaxis.grid()
+                    #ax = fig.add_subplot(224)
+                    #ax.pcolormesh(f_rho)
+                    #plt.show()
+
+                ### divergence field
+                #ax = fig.add_subplot(222)
+                #div_dv = newvel[IZ][1:,:-1] - newvel[IZ][:-1,:-1]
+                #div_du = newvel[IX][:-1,1:] - newvel[IX][:-1,:-1]
+                #div_dz = mesh[IZ][1:,:-1] - mesh[IZ][:-1,:-1]
+                #div_dx = mesh[IX][:-1,1:] - mesh[IX][:-1,:-1]
+                ##divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
+                #divergence = div_dv / div_dz + div_du / div_dx
+                #cs = ax.pcolormesh(divergence)
+                #plt.colorbar(cs)
+                ###CS=ax.contourf(midp_x, midp_y, divfield)
+                ###plt.colorbar(CS)
+
+                ## marker field with triangulated interpolation
                 #ax = fig.add_subplot(224)
-                #ax.pcolormesh(f_rho)
-                #plt.show()
+                #ax.tripcolor(tr_x[:,IX], tr_x[:,IZ], tr_f[:,TR_MRK])
 
-            ### divergence field
-            #ax = fig.add_subplot(222)
-            #div_dv = newvel[IZ][1:,:-1] - newvel[IZ][:-1,:-1]
-            #div_du = newvel[IX][:-1,1:] - newvel[IX][:-1,:-1]
-            #div_dz = mesh[IZ][1:,:-1] - mesh[IZ][:-1,:-1]
-            #div_dx = mesh[IX][:-1,1:] - mesh[IX][:-1,:-1]
-            ##divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
-            #divergence = div_dv / div_dz + div_du / div_dx
-            #cs = ax.pcolormesh(divergence)
-            #plt.colorbar(cs)
-            ###CS=ax.contourf(midp_x, midp_y, divfield)
-            ###plt.colorbar(CS)
+        
+                ax = fig.add_subplot(224)
+                #xi = np.linspace(0,L[IX],100)
+                #yi = np.linspace(0,L[IZ],100)
+                #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
+                ##zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), trac_dT[:,0], (xi[None,:], yi[:,None]), method='linear')
+                #cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
+                #plt.colorbar(cs)
+                cs = plt.pcolormesh(f_T)
+                plt.colorbar(cs)
 
-            ## marker field with triangulated interpolation
-            #ax = fig.add_subplot(224)
-            #ax.tripcolor(tr_x[:,IX], tr_x[:,IZ], tr_f[:,TR_MRK])
+                if output_file:
+                    fig.savefig("fig_{:04d}.png".format(it))
 
-    
-            ax = fig.add_subplot(224)
-            #xi = np.linspace(0,L[IX],100)
-            #yi = np.linspace(0,L[IZ],100)
-            #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
-            ##zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), trac_dT[:,0], (xi[None,:], yi[:,None]), method='linear')
-            #cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
-            #plt.colorbar(cs)
-            cs = plt.pcolormesh(f_T)
-            plt.colorbar(cs)
+                if output_screen:
+                    plt.show()
 
-            if output_file:
-                fig.savefig("fig_{:04d}.png".format(it))
-
-            if output_screen:
-                plt.show()
-
-            #dummy = input()
+                #dummy = input()
 
     sys.exit()
 

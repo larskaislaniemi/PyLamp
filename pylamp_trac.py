@@ -164,7 +164,7 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     return
 
 
-def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=None, method=INTERP_METHOD_ELEM):
+def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=None, method=INTERP_METHOD_ELEM, debug=False):
     # NB! Designed for regular grids
 
     assert len(gridfield) == tr_f.shape[1]
@@ -188,9 +188,14 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             gridfield[d][:,:] = gridval[:,:,d]
 
     elif method & INTERP_METHOD_ELEM:
-        origgrid = [np.array(grid[d], copy=True) for d in range(DIM)]
-        origmesh = [np.array(mesh[d], copy=True) for d in range(DIM)]
-        orignx = [nx[d] for d in range(DIM)]
+        # make local copies of grid/mesh in case we need to modify them
+        localgrid = [np.array(grid[d], copy=True) for d in range(DIM)]
+        localmesh = [np.array(mesh[d], copy=True) for d in range(DIM)]
+        localnx = [nx[d] for d in range(DIM)]
+
+        grid = localgrid
+        mesh = localmesh
+        nx = localnx
 
         gridmodified = False
 
@@ -201,13 +206,11 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             while np.min(tr_x[:,d]) < grid[d][0]:
                 gridmodified = True
                 grid[d] = np.concatenate([np.array([grid[d][0] - (grid[d][1]-grid[d][0])]), np.array(grid[d])])
-                nx = [nx[i] for i in range(DIM)]# make a copy and dont modify the global nx 
                 nx[d] += 1
                 addednodesleft[d] += 1
             while np.max(tr_x[:,d]) > grid[d][-1]:
                 gridmodified = True
                 grid[d] = npconcatenate([np.array(grid[d]), [np.array([grid[d][-1] + (grid[d][-1]-grid[d][-2])])]])
-                nx = [nx[i] for i in range(DIM)]# make a copy and dont modify the global nx 
                 nx[d] += 1
                 addednodesright[d] += 1
 
@@ -221,7 +224,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         ielem = np.floor((nx[IZ]-1) * (tr_x[:,IZ]-Lmin[IZ]) / L[IZ]).astype(int)
         jelem = np.floor((nx[IX]-1) * (tr_x[:,IX]-Lmin[IX]) / L[IX]).astype(int)
         elem = [ielem, jelem]
-        
+
         #inode = np.concatenate(ielem, ielem+1, ielem, ielem+1)
         #jnode = np.concatenate(jelem, jelem, jelem+1, jelem+1)
         #tr_idx = np.concatenate(4*[np.arange(tr_x.shape[0])])
@@ -236,23 +239,42 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         traccount = np.zeros(np.array(mesh[0].shape))
         tracsum = np.zeros(np.array(mesh[0].shape))
         tracweightsum = np.zeros(np.array(mesh[0].shape))
-        tracweight = np.zeros((tr_x.shape[0], 4)) # 4 <- one for each corner (2D)
+        tracweight = np.zeros((tr_x.shape[0], 4)) # 4 <- one for each corner (2D), i.e. surrounding node
 
-        dxnorm = [(tr_x[:,d] - grid[d][elem[d]]) / (grid[d][elem[d]] - grid[d][elem[d]+1]) for d in range(DIM)]
-        tracweight[:,0] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*dxnorm[IX])
-        tracweight[:,1] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*dxnorm[IX])
-        tracweight[:,2] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*(1-dxnorm[IX]))
-        tracweight[:,3] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*(1-dxnorm[IX]))
+        dxnorm = [[]] * 2  # distance to node on left, node on right
+        dxnorm[0] = [(tr_x[:,d] - grid[d][elem[d]]) / (grid[d][elem[d]+1] - grid[d][elem[d]]) for d in range(DIM)]
+        #dxnorm[1] = [(grid[d][elem[d]+1] - tr_x[:,d]) / (grid[d][elem[d]+1] - grid[d][elem[d]]) for d in range(DIM)]
+        dxnorm[1] = [1 - dxnorm[0][d] for d in range(DIM)]  # this should be equivalent to the line above
 
-        traccount[ielem,jelem] += 1
-        traccount[ielem+1,jelem] += 1
-        traccount[ielem,jelem+1] += 1
-        traccount[ielem+1,jelem+1] += 1
+        #tracweight[:,0] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*dxnorm[IX])
+        #tracweight[:,1] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*dxnorm[IX])
+        #tracweight[:,2] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*(1-dxnorm[IX]))
+        #tracweight[:,3] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*(1-dxnorm[IX]))
+        tracweight[:,0] = (1 - dxnorm[0][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[0][IZ]*dxnorm[0][IX])
+        tracweight[:,1] = (1 - dxnorm[0][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[0][IZ])*dxnorm[1][IX])
+        tracweight[:,2] = (1 - dxnorm[1][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[1][IZ]*(1-dxnorm[0][IX]))
+        tracweight[:,3] = (1 - dxnorm[1][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[1][IZ])*(1-dxnorm[1][IX]))
 
-        tracweightsum[ielem,jelem] += tracweight[:,0]
-        tracweightsum[ielem+1,jelem] += tracweight[:,1]
-        tracweightsum[ielem,jelem+1] += tracweight[:,2]
-        tracweightsum[ielem+1,jelem+1] += tracweight[:,3]
+        #for itrac in range(ntrac):
+        #    traccount[ielem[itrac],jelem[itrac]] += 1
+        #    traccount[ielem[itrac]+1,jelem[itrac]] += 1
+        #    traccount[ielem[itrac],jelem[itrac]+1] += 1
+        #    traccount[ielem[itrac]+1,jelem[itrac]+1] += 1
+
+        #    tracweightsum[ielem[itrac],jelem[itrac]] += tracweight[itrac,0]
+        #    tracweightsum[ielem[itrac]+1,jelem[itrac]] += tracweight[itrac,1]
+        #    tracweightsum[ielem[itrac],jelem[itrac]+1] += tracweight[itrac,2]
+        #    tracweightsum[ielem[itrac]+1,jelem[itrac]+1] += tracweight[itrac,3]
+
+        np.add.at(traccount, [ielem,jelem], 1)
+        np.add.at(traccount, [ielem+1,jelem], 1)
+        np.add.at(traccount, [ielem,jelem+1], 1)
+        np.add.at(traccount, [ielem+1,jelem+1], 1)
+
+        np.add.at(tracweightsum, [ielem, jelem], tracweight[:,0])
+        np.add.at(tracweightsum, [ielem+1, jelem], tracweight[:,1])
+        np.add.at(tracweightsum, [ielem, jelem+1], tracweight[:,2])
+        np.add.at(tracweightsum, [ielem+1, jelem+1], tracweight[:,3])
 
         zeroidx = traccount == 0
 
@@ -269,30 +291,29 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
 
             if avgscheme[ifield] & INTERP_AVG_ARITHMETIC:
                 if avgscheme[ifield] & INTERP_AVG_WEIGHTED:
-                    tracsum[ielem, jelem] += tr_f[:,ifield] * tracweight[:,0]
-                    print(tracweight[:,0])
-                    print(tr_f[:,ifield])
-                    tracsum[ielem+1, jelem] += tr_f[:,ifield] * tracweight[:,1]
-                    tracsum[ielem, jelem+1] += tr_f[:,ifield] * tracweight[:,2]
-                    tracsum[ielem+1,jelem+1] += tr_f[:,ifield] * tracweight[:,3]
+                    np.add.at(tracsum, [ielem, jelem], tr_f[:,ifield] * tracweight[:,0])
+                    np.add.at(tracsum, [ielem+1, jelem], tr_f[:,ifield] * tracweight[:,1])
+                    np.add.at(tracsum, [ielem, jelem+1], tr_f[:,ifield] * tracweight[:,2])
+                    np.add.at(tracsum, [ielem+1, jelem+1], tr_f[:,ifield] * tracweight[:,3])
+
                     newgridfield = tracsum[:,:] / tracweightsum[:,:]
                 else:
-                    tracsum[ielem, jelem] += tr_f[:,ifield]
-                    tracsum[ielem+1, jelem] += tr_f[:,ifield]
-                    tracsum[ielem, jelem+1] += tr_f[:,ifield]
-                    tracsum[ielem+1,jelem+1] += tr_f[:,ifield]
+                    np.add.at(tracsum, [ielem, jelem], tr_f[:,ifield])
+                    np.add.at(tracsum, [ielem+1, jelem], tr_f[:,ifield])
+                    np.add.at(tracsum, [ielem, jelem+1], tr_f[:,ifield])
+                    np.add.at(tracsum, [ielem+1, jelem+1], tr_f[:,ifield])
                     newgridfield = tracsum[:,:] / traccount[:,:]
             elif avgscheme[ifield] & INTERP_AVG_GEOMETRIC:
                 if avgscheme[ifield] & INTERP_AVG_WEIGHTED:
-                    tracsum[ielem, jelem] += np.log(tr_f[:,ifield]) * tracweight[:,0]
-                    tracsum[ielem+1, jelem] += np.log(tr_f[:,ifield]) * tracweight[:,1]
-                    tracsum[ielem, jelem+1] += np.log(tr_f[:,ifield]) * tracweight[:,2]
-                    tracsum[ielem+1,jelem+1] += np.log(tr_f[:,ifield]) * tracweight[:,3]
+                    np.add.at(tracsum, [ielem, jelem], np.log(tr_f[:,ifield]) * tracweight[:,0])
+                    np.add.at(tracsum, [ielem+1, jelem], np.log(tr_f[:,ifield]) * tracweight[:,1])
+                    np.add.at(tracsum, [ielem, jelem+1], np.log(tr_f[:,ifield]) * tracweight[:,2])
+                    np.add.at(tracsum, [ielem+1, jelem+1], np.log(tr_f[:,ifield]) * tracweight[:,3])
                 else:
-                    tracsum[ielem, jelem] += np.log(tr_f[:,ifield]) 
-                    tracsum[ielem+1, jelem] += np.log(tr_f[:,ifield])
-                    tracsum[ielem, jelem+1] += np.log(tr_f[:,ifield]) 
-                    tracsum[ielem+1,jelem+1] += np.log(tr_f[:,ifield]) 
+                    np.add.at(tracsum, [ielem, jelem], np.log(tr_f[:,ifield]))
+                    np.add.at(tracsum, [ielem+1, jelem], np.log(tr_f[:,ifield]))
+                    np.add.at(tracsum, [ielem, jelem+1], np.log(tr_f[:,ifield]))
+                    np.add.at(tracsum, [ielem+1, jelem+1], np.log(tr_f[:,ifield]))
 
                 # if original value is zero, log returns -inf... fix that
                 tracsum[np.isinf(tracsum)] = 0
@@ -308,10 +329,9 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
             #gridfield[ifield][nonzeroelemidx] = newgridfield[nonzeroelemidx]
 
             if gridmodified:
-                dnx = [nx[d]-orignx[d] for d in range(DIM)]
                 gridfield[ifield][:,:] = newgridfield[addednodesleft[0]:(nx[0]-addednodesright[0]), addednodesleft[1]:(nx[1]-addednodesright[1])]
             else:
-                gridfield[ifield][:] = newgridfield[:]
+                gridfield[ifield][:,:] = newgridfield[:,:]
 
         return
 
