@@ -86,7 +86,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bc, bcvalue, ts
 
     dof = np.prod(nx)
     A   = lil_matrix((dof, dof))
-    A   = np.zeros((dof,dof))
+    #A   = np.zeros((dof,dof))
     rhs = np.zeros(dof)
 
     #### boundaries: ####

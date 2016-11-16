@@ -1,14 +1,16 @@
 #!/usr/bin/python3
 
-INTERP_AVG_ARITHMETIC = 0
-INTERP_AVG_GEOMETRIC = 1
+INTERP_AVG_ARITHMETIC = 1
+INTERP_AVG_GEOMETRIC = 2
+INTERP_AVG_WEIGHTED = 4
 
-INTERP_METHOD_IDW = 0
-INTERP_METHOD_GRIDDATA = 1
-INTERP_METHOD_ELEM = 2
-INTERP_METHOD_NEAREST = 3
-INTERP_METHOD_LINEAR = 4
-INTERP_METHOD_VELDIV = 5
+INTERP_METHOD_IDW = 1
+INTERP_METHOD_GRIDDATA = 2
+INTERP_METHOD_ELEM = 4
+INTERP_METHOD_NEAREST = 8
+INTERP_METHOD_LINEAR = 16   # actually, bilinear, i.e. non-linear ...
+INTERP_METHOD_VELDIV = 32
+INTERP_METHOD_DIFF = 64
 
 from pylamp_const import *
 import numpy as np
@@ -16,15 +18,15 @@ from scipy.interpolate import griddata
 import itertools
 import sys
 
-def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR):
+def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR, stopOnError=False):
     # Interpolate values (gridfield) from grid to tracer
-    # value (tr_f). Usually, the tracer value is its velocity.
+    # value (tr_f). 
 
     # NB! Designed for regular grids!
 
     assert len(gridfield) == tr_f.shape[1]
-    assert method == INTERP_METHOD_LINEAR or method == INTERP_METHOD_NEAREST or\
-            method == INTERP_METHOD_VELDIV
+    assert (method & INTERP_METHOD_LINEAR) or (method & INTERP_METHOD_NEAREST) or\
+            (method & INTERP_METHOD_VELDIV)
 
     nfield = len(gridfield)
 
@@ -39,6 +41,8 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     #        (tr_x[:,IX] < Lmin[IX]) | (tr_x[:,IX] > Lmax[IX])
 
     idxdefval = (ielem < 0) | (ielem > nx[IZ]-1) | (jelem < 0) | (jelem > nx[IX]-1)
+    if stopOnError and np.sum(idxdefval) > 0:
+        raise Exception("stopOnError in grid2trac")
 
     if np.sum(idxdefval) > 0:
         print("!!! Warning, grid2trac(): Using default value for extrapolation in ", np.sum(idxdefval), "tracers")
@@ -59,31 +63,39 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             distz[:,icorner] = np.abs(tr_x[:,IZ] - grid[IZ][ielem+di])
             distx[:,icorner] = np.abs(tr_x[:,IX] - grid[IX][jelem+dj])
 
-    if method == INTERP_METHOD_NEAREST:
+    if method & INTERP_METHOD_NEAREST:
         disttot = distz**2 + distx**2
         nearestcorner = np.argmin(disttot, axis=1)
         nearestcorner_dj = (nearestcorner % 2).astype(int)
         nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
 
     for ifield in range(nfield):
-        if method == INTERP_METHOD_NEAREST:
-            tr_f[:,ifield] = gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
-        elif method == INTERP_METHOD_LINEAR:
+        if method & INTERP_METHOD_NEAREST:
+            if method & INTERP_METHOD_DIFF:
+                tr_f[:,ifield] += gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
+            else:
+                tr_f[:,ifield] = gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
+        elif method & INTERP_METHOD_LINEAR:
             xavg1 = gridfield[ifield][ielem + 0, jelem + 0] * distx[:, 1] + gridfield[ifield][ielem + 0, jelem + 1] * distx[:, 0]
             xavg1 = xavg1 / (distx[:, 0] + distx[:, 1])
             xavg2 = gridfield[ifield][ielem + 1, jelem + 0] * distx[:, 3] + gridfield[ifield][ielem + 1, jelem + 1] * distx[:, 2]
             xavg2 = xavg2 / (distx[:, 1] + distx[:, 2])
             zavg1 = xavg1 * distz[:,2] + xavg2 * distz[:,0]
             zavg1 = zavg1 / (distz[:,2] + distz[:,0])
-            tr_f[:,ifield] = zavg1[:]
+            if method & INTERP_METHOD_DIFF:
+                tr_f[:,ifield] += zavg1[:]
+            else:
+                tr_f[:,ifield] = zavg1[:]
 
-        elif method == INTERP_METHOD_VELDIV:
+        elif method & INTERP_METHOD_VELDIV:
             # See Wang et al 2015 (or Meyer and Jenny 2004)
             # 2nd order bilinear interpolation
             # conserves the divergence (=0) also during the advection
 
             # Only 2D implemented!
             # Does not work properly yet as vz,vx are on different grids...
+            # Current invocation of grid2trac is not compatible with this
+            # Add implementation of INTERP_METHOD_DIFF
 
 
             # local interpolated velocity at (x1,x2):
@@ -158,7 +170,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
     assert len(gridfield) == tr_f.shape[1]
 
     if avgscheme is None:
-        avgscheme = [INTERP_AVG_ARITHMETIC for i in range(len(gridfield))]
+        avgscheme = [INTERP_AVG_ARITHMETIC + INTERP_AVG_WEIGHTED for i in range(len(gridfield))]
 
     assert type(avgscheme) == type([])
     assert len(avgscheme) == len(gridfield)
@@ -166,7 +178,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
     ntracfield = len(gridfield)
     ntrac = tr_x.shape[0]
 
-    if method == INTERP_METHOD_GRIDDATA:
+    if method & INTERP_METHOD_GRIDDATA:
         if DIM != 2:
             print("!!! NOT IMPLEMENTED")
         
@@ -175,28 +187,77 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         for d in range(ntracfield):
             gridfield[d][:,:] = gridval[:,:,d]
 
-    elif method == INTERP_METHOD_ELEM:
-        # TODO: weight by distance to the grid point
+    elif method & INTERP_METHOD_ELEM:
+        origgrid = [np.array(grid[d], copy=True) for d in range(DIM)]
+        origmesh = [np.array(mesh[d], copy=True) for d in range(DIM)]
+        orignx = [nx[d] for d in range(DIM)]
+
+        gridmodified = False
+
+        addednodesright = [0] * DIM
+        addednodesleft  = [0] * DIM
+
+        for d in range(DIM):
+            while np.min(tr_x[:,d]) < grid[d][0]:
+                gridmodified = True
+                grid[d] = np.concatenate([np.array([grid[d][0] - (grid[d][1]-grid[d][0])]), np.array(grid[d])])
+                nx = [nx[i] for i in range(DIM)]# make a copy and dont modify the global nx 
+                nx[d] += 1
+                addednodesleft[d] += 1
+            while np.max(tr_x[:,d]) > grid[d][-1]:
+                gridmodified = True
+                grid[d] = npconcatenate([np.array(grid[d]), [np.array([grid[d][-1] + (grid[d][-1]-grid[d][-2])])]])
+                nx = [nx[i] for i in range(DIM)]# make a copy and dont modify the global nx 
+                nx[d] += 1
+                addednodesright[d] += 1
+
+        if gridmodified:
+            mesh = np.meshgrid(*grid, indexing='ij')
 
         Lmax = [grid[i][-1] for i in range(DIM)]
         Lmin = [grid[i][0] for i in range(DIM)]
         L = [Lmax[i]-Lmin[i] for i in range(DIM)]
 
-        ielem = np.floor((2*nx[IZ]-1) * (tr_x[:,IZ]-Lmin[IZ]) / L[IZ]).astype(int)
-        jelem = np.floor((2*nx[IX]-1) * (tr_x[:,IX]-Lmin[IX]) / L[IX]).astype(int)
+        ielem = np.floor((nx[IZ]-1) * (tr_x[:,IZ]-Lmin[IZ]) / L[IZ]).astype(int)
+        jelem = np.floor((nx[IX]-1) * (tr_x[:,IX]-Lmin[IX]) / L[IX]).astype(int)
+        elem = [ielem, jelem]
+        
+        #inode = np.concatenate(ielem, ielem+1, ielem, ielem+1)
+        #jnode = np.concatenate(jelem, jelem, jelem+1, jelem+1)
+        #tr_idx = np.concatenate(4*[np.arange(tr_x.shape[0])])
 
-        traccount = np.zeros(2*np.array(mesh[0].shape))
-        tracsum = np.zeros(2*np.array(mesh[0].shape))
+        #valid_idx = (inode >= 0) | (inode < nx[IZ]) | \
+        #        (jnode >= 0) | (jnode < nx[IX])
+
+        #inode = inode[valid_idx]
+        #jnode = jnode[valid_idx]
+        #tr_idx = tr_idx[valid_idx]
+
+        traccount = np.zeros(np.array(mesh[0].shape))
+        tracsum = np.zeros(np.array(mesh[0].shape))
+        tracweightsum = np.zeros(np.array(mesh[0].shape))
+        tracweight = np.zeros((tr_x.shape[0], 4)) # 4 <- one for each corner (2D)
+
+        dxnorm = [(tr_x[:,d] - grid[d][elem[d]]) / (grid[d][elem[d]] - grid[d][elem[d]+1]) for d in range(DIM)]
+        tracweight[:,0] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*dxnorm[IX])
+        tracweight[:,1] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*dxnorm[IX])
+        tracweight[:,2] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*(1-dxnorm[IX]))
+        tracweight[:,3] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*(1-dxnorm[IX]))
 
         traccount[ielem,jelem] += 1
         traccount[ielem+1,jelem] += 1
         traccount[ielem,jelem+1] += 1
         traccount[ielem+1,jelem+1] += 1
 
+        tracweightsum[ielem,jelem] += tracweight[:,0]
+        tracweightsum[ielem+1,jelem] += tracweight[:,1]
+        tracweightsum[ielem,jelem+1] += tracweight[:,2]
+        tracweightsum[ielem+1,jelem+1] += tracweight[:,3]
+
         zeroidx = traccount == 0
 
-        zeroelemidx = zeroidx[0::2,0::2] + zeroidx[1::2,0::2] + \
-                zeroidx[0::2,1::2] + zeroidx[1::2,1::2]
+        zeroelemidx = zeroidx[:-1,:-1] + zeroidx[1:,:-1] + \
+                zeroidx[:-1,1:] + zeroidx[1:,1:]
         nonzeroelemidx = np.invert(zeroelemidx > 0)
 
         if np.sum(zeroelemidx) > 0:
@@ -206,62 +267,55 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         for ifield in range(ntracfield):
             tracsum[:,:] = 0
 
-            if avgscheme[ifield] == INTERP_AVG_ARITHMETIC:
-                tracsum[ielem, jelem] += tr_f[:,ifield]
-                tracsum[ielem+1, jelem] += tr_f[:,ifield]
-                tracsum[ielem, jelem+1] += tr_f[:,ifield]
-                tracsum[ielem+1,jelem+1] += tr_f[:,ifield]
-                newgridfield = tracsum[::2,::2] / traccount[::2,::2]
-            elif avgscheme[ifield] == INTERP_AVG_GEOMETRIC:
-                tracsum[ielem, jelem] += np.log(tr_f[:,ifield])
-                tracsum[ielem+1, jelem] += np.log(tr_f[:,ifield])
-                tracsum[ielem, jelem+1] += np.log(tr_f[:,ifield])
-                tracsum[ielem+1,jelem+1] += np.log(tr_f[:,ifield])
+            if avgscheme[ifield] & INTERP_AVG_ARITHMETIC:
+                if avgscheme[ifield] & INTERP_AVG_WEIGHTED:
+                    tracsum[ielem, jelem] += tr_f[:,ifield] * tracweight[:,0]
+                    print(tracweight[:,0])
+                    print(tr_f[:,ifield])
+                    tracsum[ielem+1, jelem] += tr_f[:,ifield] * tracweight[:,1]
+                    tracsum[ielem, jelem+1] += tr_f[:,ifield] * tracweight[:,2]
+                    tracsum[ielem+1,jelem+1] += tr_f[:,ifield] * tracweight[:,3]
+                    newgridfield = tracsum[:,:] / tracweightsum[:,:]
+                else:
+                    tracsum[ielem, jelem] += tr_f[:,ifield]
+                    tracsum[ielem+1, jelem] += tr_f[:,ifield]
+                    tracsum[ielem, jelem+1] += tr_f[:,ifield]
+                    tracsum[ielem+1,jelem+1] += tr_f[:,ifield]
+                    newgridfield = tracsum[:,:] / traccount[:,:]
+            elif avgscheme[ifield] & INTERP_AVG_GEOMETRIC:
+                if avgscheme[ifield] & INTERP_AVG_WEIGHTED:
+                    tracsum[ielem, jelem] += np.log(tr_f[:,ifield]) * tracweight[:,0]
+                    tracsum[ielem+1, jelem] += np.log(tr_f[:,ifield]) * tracweight[:,1]
+                    tracsum[ielem, jelem+1] += np.log(tr_f[:,ifield]) * tracweight[:,2]
+                    tracsum[ielem+1,jelem+1] += np.log(tr_f[:,ifield]) * tracweight[:,3]
+                else:
+                    tracsum[ielem, jelem] += np.log(tr_f[:,ifield]) 
+                    tracsum[ielem+1, jelem] += np.log(tr_f[:,ifield])
+                    tracsum[ielem, jelem+1] += np.log(tr_f[:,ifield]) 
+                    tracsum[ielem+1,jelem+1] += np.log(tr_f[:,ifield]) 
 
-                # if original value is zero, log return -inf... fix that
+                # if original value is zero, log returns -inf... fix that
                 tracsum[np.isinf(tracsum)] = 0
 
-                newgridfield = np.exp(tracsum[::2,::2] / traccount[::2,::2])
+                if avgscheme[ifield] & INTERP_AVG_WEIGHTED:
+                    newgridfield = np.exp(tracsum[:,:] / tracweightsum[:,:])
+                else:
+                    newgridfield = np.exp(tracsum[:,:] / traccount[:,:])
 
             else:
                 print ("!!! ERROR INVALID AVERAGING SCHEME")
 
-            gridfield[ifield][nonzeroelemidx] = newgridfield[nonzeroelemidx]
+            #gridfield[ifield][nonzeroelemidx] = newgridfield[nonzeroelemidx]
+
+            if gridmodified:
+                dnx = [nx[d]-orignx[d] for d in range(DIM)]
+                gridfield[ifield][:,:] = newgridfield[addednodesleft[0]:(nx[0]-addednodesright[0]), addednodesleft[1]:(nx[1]-addednodesright[1])]
+            else:
+                gridfield[ifield][:] = newgridfield[:]
 
         return
 
         
-        iprev = -1
-        jprev = -1
-        iidx = np.array([])
-        jidx = np.array([])
-
-        for gridp in itertools.product(*(range(i) for i in nx[0:DIM])):
-            i = gridp[0]
-            j = gridp[1]
-
-            if i != iprev:
-                iidx = (tr_x[:,IZ] < grid[IZ][min(i+1,nx[IZ]-1)]) & (tr_x[:,IZ] > grid[IZ][max(i-1,0)])
-                sys.stdout.write('.')
-                sys.stdout.flush()
-
-            if j != jprev:
-                jidx = (tr_x[:,IX] < grid[IX][min(j+1,nx[IX]-1)]) & (tr_x[:,IX] > grid[IX][max(j-1,0)])
-
-            idx = iidx & jidx
-
-            if np.sum(idx) == 0:
-                print ("! WARNING ", i, j, " is empty")
-            for ifield in range(tr_f.shape[1]):
-                if avgscheme[ifield] == INTERP_AVG_ARITHMETIC:
-                    gridfield[ifield][i,j] = np.mean(tr_f[idx,ifield])
-                elif avgscheme[ifield] == INTERP_AVG_GEOMETRIC:
-                    gridfield[ifield][i,j] = np.exp(np.sum(np.log(tr_f[idx,ifield])) / np.sum(idx))
-
-            iprev = i
-            jprev = j
-
-
 def RK(tr_x, grids, vels, nx, tstep, order=4):
     if order != 2 and order != 4:
         raise Exception("Sorry, don't know how to do that")

@@ -4,18 +4,20 @@ from pylamp_const import *
 import pylamp_stokes 
 import pylamp_trac
 import pylamp_diff
+import pylamp_io
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import scipy.sparse.linalg
 #from mpi4py import MPI
 import importlib
-import vtk
-from vtk.util import numpy_support
+#import vtk
+#from vtk.util import numpy_support
 
 importlib.reload(pylamp_stokes)
 importlib.reload(pylamp_trac)
 importlib.reload(pylamp_diff)
+importlib.reload(pylamp_io)
 
 def pprint(*arg):
     comm = MPI.COMM_WORLD
@@ -35,9 +37,16 @@ if __name__ == "__main__":
     nx    =   [33,50]         # use order z,x,y
     L     =   [660e3, 1000e3]
     tracdens = 40   # how many tracers per element
-    do_stokes = True
-    do_advect = True
+    do_stokes = False
+    do_advect = False
     do_heatdiff = True
+    tstep_adv_max = 50e9 * SECINYR
+    tstep_adv_min = 50e-9 * SECINYR
+    tstep_dif_max = 50e9 * SECINYR
+    tstep_dif_min = 50e-9 * SECINYR
+    output_file = False
+    output_screen = False
+    tdep_rho = False
 
     Tref  =   273         # reference temperature used for thermal expansion
 
@@ -76,38 +85,53 @@ if __name__ == "__main__":
 
     ## Some material values and initial values
 
-    ### Falling block
-    ## Density
-    #tr_f[:, TR_RHO] = 3300
+    ## Falling block
+    # Density
+    #tr_f[:, TR_IRH] = 3300
     #idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
     #idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-    ##tr_f[idxx & idxz, TR_RHO] = 3340
-    #tr_f[idxx & idxz, TR_RHO] = 3260
+    ##tr_f[idxx & idxz, TR_IRH] = 3340
+    #tr_f[idxx & idxz, TR_IRH] = 3260
+    #tr_f[:, TR_ALP] = 0
 
     ## ... sticky air test
     #idxz2 = tr_x[:, IZ] < 50e3
     #tr_f[idxz2, TR_RHO] = 1
     #tr_f[idxz2, TR_ETA] = 1e17
 
-    ## Viscosity
+    # Viscosity
     #tr_f[:, TR_ETA] = 1e19
-    #tr_f[idxx & idxz, TR_ETA] = 1e19
+    #tr_f[idxx & idxz, TR_ETA] = 1e23
 
-    #### RT instability
+    ### RT instability, double-sided
     #tr_f[:, TR_IRH] = 3300
     #idxz = (tr_x[:, IZ] < 150e3)
     #tr_f[idxz, TR_IRH] = 3340
     #tr_f[:, TR_ALP] = 0.0
+    #tr_f[:, TR_ETA] = 1e19
+    #tr_f[idxz, TR_ETA] = 1e20
+    #idxz = (tr_x[:, IZ] > 510e3)
+    #tr_f[idxz, TR_IRH] = 3260
+    #tr_f[idxz, TR_ETA] = 1e20
 
-    #### lava lamp
+    ### heat diffusion test
     tr_f[:, TR_IRH] = 3300
-    tr_f[:, TR_ALP] = 3.5e-5
-
-    tr_f[:, TR_ETA] = 1e20
-
+    tr_f[:, TR_ALP] = 0.0
     tr_f[:, TR_HCD] = 4.0
     tr_f[:, TR_HCP] = 1250
     tr_f[:, TR_TMP] = 273
+
+    
+
+    ##### lava lamp
+    #tr_f[:, TR_IRH] = 3300
+    #tr_f[:, TR_ALP] = 3.5e-5
+
+    #tr_f[:, TR_ETA] = 1e20
+
+    #tr_f[:, TR_HCD] = 4.0
+    #tr_f[:, TR_HCP] = 1250
+    #tr_f[:, TR_TMP] = 273
 
 
 
@@ -121,6 +145,9 @@ if __name__ == "__main__":
     for i in range(0,9,2):
         tr_f[(tr_x[:,IX] >= inixdiv[i]) & (tr_x[:,IX] < inixdiv[i+1]), TR_MRK] *= -1
 
+    if do_advect ^ do_stokes:
+        raise Exception("Not implemented yet. Both do_advect and do_stokes need to be either disabled or enabled.")
+
     it = 0
     totaltime = 0
     while (True):
@@ -128,27 +155,50 @@ if __name__ == "__main__":
         print("\n --- Time step:", it, "---")
 
         print("Calculate physical properties")
-        tr_f[:, TR_RHO] = ((tr_f[:, TR_ALP] * (tr_f[:, TR_TMP] - Tref) + 1) / tr_f[:, TR_IRH])**(-1)
+        if tdep_rho:
+            # Effective density, rho=rho(T, inherent density)
+            tr_f[:, TR_RHO] = ((tr_f[:, TR_ALP] * (tr_f[:, TR_TMP] - Tref) + 1) / tr_f[:, TR_IRH])**(-1)
+        else:
+            tr_f[:, TR_RHO] = tr_f[:, TR_IRH]
 
-        if it == 1 or do_advect == True:
-            print("Properties trac2grid")
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_etas, f_Cp, f_T], nx, 
-                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC])
+
+        print("Properties trac2grid")
+
+        if do_advect and do_heatdiff:
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_etas, f_Cp, f_T], nx, \
+                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
-        elif do_heatdiff == True:
-            print("Properties trac2grid")
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_TMP]], mesh, grid, [f_rho, f_T], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC])
 
+        elif do_advect:
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, \
+                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+
+        elif do_heatdiff:
+            if it == 1 or tdep_rho:
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_Cp, f_T], nx, 
+                        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+            else:
+                ### after the first time step (if no temperature dependen rho) we only need to interpolate temperature, since there is no advection
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_TMP]], mesh, grid, [f_T], nx, 
+                        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
+                ### actually, let's skip that, too, and copy the grid directly
+                #f_T = newtemp #testing above...
+        
+        
+        
         if do_stokes:
             print("Build stokes")
-            bcstokes = [ \
-                    pylamp_stokes.BC_TYPE_FREESLIP, \
-                    pylamp_stokes.BC_TYPE_NOSLIP, \
-                    pylamp_stokes.BC_TYPE_NOSLIP, \
-                    pylamp_stokes.BC_TYPE_NOSLIP  \
-                    ]  # idx is DIM*side + DIR 
+            bcstokes = [[]] * 4
+            bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+            bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+            bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+            bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+
             (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
 
             print("Solve stokes")
@@ -159,10 +209,14 @@ if __name__ == "__main__":
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
             tstep_stokes = 0.25 * np.min(dx) / np.max(newvel)
+            tstep_stokes = min(tstep_stokes, tstep_adv_max)
+            tstep_stokes = max(tstep_stokes, tstep_adv_min)
 
         if do_heatdiff:
             diffusivity = f_k[IZ] / (f_rho * f_Cp)
             tstep_temp = 0.25 * np.min(dx)**2 / np.max(2*diffusivity)
+            tstep_temp = min(tstep_temp, tstep_dif_max)
+            tstep_temp = max(tstep_temp, tstep_dif_min)
 
         if do_heatdiff and do_advect:
             tstep = min(tstep_temp, tstep_stokes)
@@ -197,13 +251,34 @@ if __name__ == "__main__":
             x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
             newtemp = pylamp_diff.x2t(x, nx)
-            newdT = newtemp - f_T
+            
+            old_tr_f = np.array(tr_f, copy=True)
 
-            trac_dT = np.zeros((tr_x.shape[0], 1))
+            interp_tracvals = np.zeros((tr_f.shape[0], 1))
+            if it >= 1:
+                # On first timestep, interpolate absolute temperature values to tracers ...
+                print("grid2trac T")
+                pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                tr_f[:, TR_TMP] = interp_tracvals[:, 0]
+            else:
+                # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
+                print("grid2trac dT")
+                newdT = newtemp - f_T
+                pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR + pylamp_trac.INTERP_METHOD_DIFF, stopOnError=True)
+                tr_f[:, TR_TMP] += interp_tracvals[:, 0]
 
-            print("dT grid2trac")
-            pylamp_trac.grid2trac(tr_x, trac_dT, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR)
-            tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + trac_dT[:,0]
+                #### subgrid diffusion
+                ## correction at tracers
+                #subgrid_corr_dt0 = tr_f[:, TR_HCP] * tr_f[:, TR_RHO] / (tr_f[:, TR_HCD] * (2/dx[IX]**2 + 2/dx[IZ]**2))
+                #subgrid_corr_T = old_tr_f[:, TR_TMP] - (old_tr_f[:, TR_TMP] - tr_f[:, TR_TMP]) * np.exp(-d * tstep / subgrid_corr_dt0)
+                ## compensation at eulerian nodes
+
+                
+
+                
+
+            print("max T in tracers: ", np.max(tr_f[:, TR_TMP]))
+            print("max change in tracers: ", np.max(tr_f[:,TR_TMP]-old_tr_f[:,TR_TMP]))
 
         if do_advect:
             print("Tracer advection")
@@ -267,6 +342,8 @@ if __name__ == "__main__":
         #vtkarr = vtk.vtkShortArray()
         #vtkarr.SetNumberOfComponents(1)
 
+        pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:04d}.vtk".format(it))
+
         if it % 1 == 1:
             print("Plot")
             plt.close('all')
@@ -275,7 +352,7 @@ if __name__ == "__main__":
             plt.show()
 
 
-        if it % 20 == 1:
+        if it % 1 == 0:
             print("Plot")
             plt.close('all')
             fig = plt.figure()
@@ -334,13 +411,20 @@ if __name__ == "__main__":
 
     
             ax = fig.add_subplot(224)
-            xi = np.linspace(0,L[IX],100)
-            yi = np.linspace(0,L[IZ],100)
-            zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
-            cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
+            #xi = np.linspace(0,L[IX],100)
+            #yi = np.linspace(0,L[IZ],100)
+            #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
+            ##zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), trac_dT[:,0], (xi[None,:], yi[:,None]), method='linear')
+            #cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
+            #plt.colorbar(cs)
+            cs = plt.pcolormesh(f_T)
             plt.colorbar(cs)
 
-            plt.show()
+            if output_file:
+                fig.savefig("fig_{:04d}.png".format(it))
+
+            if output_screen:
+                plt.show()
 
             #dummy = input()
 
