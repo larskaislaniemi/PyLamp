@@ -35,25 +35,37 @@ def pprint(*arg):
 if __name__ == "__main__":
 
     # Configurable options
-    nx    =   [66,100]         # use order z,x,y
+    nx    =   [33,50]         # use order z,x,y
     L     =   [660e3, 1000e3]
     tracdens = 40   # how many tracers per element
+    
     do_stokes = True
     do_advect = True
     do_heatdiff = True
+
     tstep_adv_max = 50e9 * SECINYR
     tstep_adv_min = 50e-9 * SECINYR
     tstep_dif_max = 50e9 * SECINYR
     tstep_dif_min = 50e-9 * SECINYR
+    tstep_modifier = 0.67             # coefficient for automatic tsteps
+
     output_file = True
     output_screen = False
     output_vtk = False
-    output_stride = 10
-    tdep_rho = True
-    force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
-    max_it = 9999
+    output_stride = 5
 
-    Tref  =   273         # reference temperature used for thermal expansion
+    tdep_rho = True
+    tdep_eta = True
+    etamin = 1e18
+    etamax = 1e23
+    Tref = 1723
+    
+    force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
+    max_it = 99999
+    bc_internal_type = 1           # 0 = disabled
+    surface_stabilization = False   # use if "sticky air" free surface present
+    surfstab_theta = 0.5           
+
 
     # Derived options
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -79,6 +91,7 @@ if __name__ == "__main__":
     f_etan =   np.zeros(nx)    # viscosity in xy-midpoints
     f_k    =   [np.zeros(nx) for i in range(DIM)]  # kz in z-midpoint field
                                                    # kx in x-midpoint field
+    f_H    =   np.zeros(nx)    # internal heating
 
     # Tracers
     ntrac = np.prod(nx)*tracdens
@@ -92,35 +105,35 @@ if __name__ == "__main__":
 
     ## Falling block
     # Density
-    #tr_f[:, TR_IRH] = 3300
+    #tr_f[:, TR_RH0] = 3300
     #idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
     #idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-    ##tr_f[idxx & idxz, TR_IRH] = 3340
-    #tr_f[idxx & idxz, TR_IRH] = 3260
+    ##tr_f[idxx & idxz, TR_RH0] = 3340
+    #tr_f[idxx & idxz, TR_RH0] = 3260
     #tr_f[:, TR_ALP] = 0
 
     ## ... sticky air test
     #idxz2 = tr_x[:, IZ] < 50e3
     #tr_f[idxz2, TR_RHO] = 1
-    #tr_f[idxz2, TR_ETA] = 1e17
+    #tr_f[idxz2, TR_ET0] = 1e17
 
     ## Viscosity
-    #tr_f[:, TR_ETA] = 1e17
-    #tr_f[idxx & idxz, TR_ETA] = 1e20
+    #tr_f[:, TR_ET0] = 1e17
+    #tr_f[idxx & idxz, TR_ET0] = 1e20
 
     #### RT instability, double-sided
-    #tr_f[:, TR_IRH] = 3300
+    #tr_f[:, TR_RH0] = 3300
     #idxz = (tr_x[:, IZ] < 150e3)
-    #tr_f[idxz, TR_IRH] = 3340
+    #tr_f[idxz, TR_RH0] = 3340
     #tr_f[:, TR_ALP] = 0.0
-    #tr_f[:, TR_ETA] = 1e19
-    #tr_f[idxz, TR_ETA] = 1e20
+    #tr_f[:, TR_ET0] = 1e19
+    #tr_f[idxz, TR_ET0] = 1e20
     #idxz = (tr_x[:, IZ] > 510e3)
-    #tr_f[idxz, TR_IRH] = 3260
-    #tr_f[idxz, TR_ETA] = 1e20
+    #tr_f[idxz, TR_RH0] = 3260
+    #tr_f[idxz, TR_ET0] = 1e20
 
     ### heat diffusion test
-    #tr_f[:, TR_IRH] = 3300
+    #tr_f[:, TR_RH0] = 3300
     #tr_f[:, TR_ALP] = 0.0
     #tr_f[:, TR_HCD] = 4.0
     #tr_f[:, TR_HCP] = 1250
@@ -129,16 +142,47 @@ if __name__ == "__main__":
     
 
     #### lava lamp
-    tr_f[:, TR_IRH] = 3300
+    #tr_f[:, TR_RH0] = 3300
+    #tr_f[:, TR_ALP] = 3.5e-5
+
+    #tr_f[:, TR_ET0] = 1e18
+    #tr_f[tr_x[:,IZ] > 560e3, TR_ET0] = 1e19
+
+    #tr_f[:, TR_HCD] = 4.0
+    #tr_f[:, TR_HCP] = 1250
+    #tr_f[:, TR_TMP] = 273
+
+
+    #### lava lamp with free surface
+    #idxzair = tr_x[:, IZ] < 0e3
+    #tr_f[:, TR_RH0] = 3300
+    #tr_f[:, TR_ALP] = 3.5e-5
+    #tr_f[:, TR_MAT] = 1
+    #tr_f[:, TR_ET0] = 1e19
+    #tr_f[:, TR_HCD] = 4.0
+    #tr_f[:, TR_HCP] = 1250
+    #tr_f[:, TR_TMP] = 273
+
+    #tr_f[idxzair, TR_MAT] = 0    # water
+    #tr_f[idxzair, TR_RH0] = 1000 
+    #tr_f[idxzair, TR_ALP] = 0
+    #tr_f[idxzair, TR_ET0] = 1e17
+    #tr_f[idxzair, TR_HCD] = 1e-10    # we use internal bc to force all water to constant temp
+    #tr_f[idxzair, TR_HCP] = 1000
+    #tr_f[idxzair, TR_TMP] = 273
+
+
+    # Stagnant lid?
+    tr_f[:, TR_RH0] = 3300
     tr_f[:, TR_ALP] = 3.5e-5
-
-    tr_f[:, TR_ETA] = 1e18
-    tr_f[tr_x[:,IZ] > 560e3, TR_ETA] = 1e19
-
+    tr_f[:, TR_MAT] = 1
+    tr_f[:, TR_ET0] = 1e19
     tr_f[:, TR_HCD] = 4.0
     tr_f[:, TR_HCP] = 1250
-    tr_f[:, TR_TMP] = 273
-
+    tr_f[:, TR_TMP] = 1623
+    tr_f[tr_x[:,IZ] < 50e3, TR_TMP] = 273
+    tr_f[:, TR_ACE] = 360e3
+    tr_f[:, TR_IHT] = 0.1e-6
 
 
     ## Passive markers
@@ -163,38 +207,62 @@ if __name__ == "__main__":
         print("Calculate physical properties")
         if tdep_rho:
             # Effective density, rho=rho(T, inherent density)
-            tr_f[:, TR_RHO] = ((tr_f[:, TR_ALP] * (tr_f[:, TR_TMP] - Tref) + 1) / tr_f[:, TR_IRH])**(-1)
+            tr_f[:, TR_RHO] = ((tr_f[:, TR_ALP] * (tr_f[:, TR_TMP] - Tref) + 1) / tr_f[:, TR_RH0])**(-1)
         else:
-            tr_f[:, TR_RHO] = tr_f[:, TR_IRH]
+            tr_f[:, TR_RHO] = tr_f[:, TR_RH0]
 
+        if tdep_eta:
+            # Effective viscosity, eta=eta(T, inherent viscosity)
+            tr_f[:, TR_ETA] = tr_f[:, TR_ET0] * np.exp(tr_f[:, TR_ACE] / (GASR * tr_f[:, TR_TMP]) - tr_f[:, TR_ACE] / (GASR * Tref))
+            print (np.max(tr_f[:, TR_ETA]), np.min(tr_f[:, TR_ETA]))
+            tr_f[tr_f[:, TR_ETA] < etamin, TR_ETA] = etamin
+            tr_f[tr_f[:, TR_ETA] > etamax, TR_ETA] = etamax
+        else:
+            tr_f[:, TR_ETA] = tr_f[:, TR_ET0]
+
+
+        if bc_internal_type > 0:
+
+            if bc_internal_type == 1:
+                # force material zero (water, air) to constant temperature
+                idxmat = tr_f[:, TR_MAT] == 0
+                tr_f[idxmat, TR_TMP] = 273
 
         print("Properties trac2grid")
 
         if do_advect and do_heatdiff:
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_etas, f_Cp, f_T], nx, \
-                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+            # Interpolation done once on each different grid, multiple value fields at once
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP, TR_IHT]], mesh, grid, [f_rho, f_etas, f_Cp, f_T, f_H], nx, \
+                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_GEOMW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMW])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
 
         elif do_advect:
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, \
-                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_GEOMETRIC])
+                    avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_GEOMW])
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
 
         elif do_heatdiff:
             if it == 1 or tdep_rho or force_trac2grid_T:
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_HCP, TR_TMP]], mesh, grid, [f_rho, f_Cp, f_T], nx, 
-                        avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC, pylamp_trac.INTERP_AVG_ARITHMETIC + pylamp_trac.INTERP_AVG_WEIGHTED])
-                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
-                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHMETIC])
+                        avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW])
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
             else:
                 ### after the first time step (if no temperature dependen rho) we only need to interpolate temperature, since there is no advection
                 ### actually, let's skip that, too, and copy the grid directly
                 f_T = newtemp
-        
-        
-        
+
+        if do_heatdiff:
+            diffusivity = f_k[IZ] / (f_rho * f_Cp)
+            tstep_temp = 0.67 * np.min(dx)**2 / np.max(2*diffusivity)
+            tstep_temp = min(tstep_temp, tstep_dif_max)
+            tstep_temp = max(tstep_temp, tstep_dif_min)
+
+        newvel = 0
+        newpres = 0
+
         if do_stokes:
             print("Build stokes")
             bcstokes = [[]] * 4
@@ -212,15 +280,9 @@ if __name__ == "__main__":
 
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-            tstep_stokes = 0.25 * np.min(dx) / np.max(newvel)
+            tstep_stokes = 0.67 * np.min(dx) / np.max(newvel)
             tstep_stokes = min(tstep_stokes, tstep_adv_max)
             tstep_stokes = max(tstep_stokes, tstep_adv_min)
-
-        if do_heatdiff:
-            diffusivity = f_k[IZ] / (f_rho * f_Cp)
-            tstep_temp = 0.25 * np.min(dx)**2 / np.max(2*diffusivity)
-            tstep_temp = min(tstep_temp, tstep_dif_max)
-            tstep_temp = max(tstep_temp, tstep_dif_min)
 
         if do_heatdiff and do_advect:
             tstep = min(tstep_temp, tstep_stokes)
@@ -228,6 +290,19 @@ if __name__ == "__main__":
             tstep = tstep_temp
         else:
             tstep = tstep_stokes
+
+        if do_stokes and surface_stabilization:
+            print ("Redo stokes with surface stabilization")
+            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta)
+
+            print ("Resolve stokes")
+            x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+            #(x, Aerr) = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs, x0=x)
+            #print ("  resolve error: ", Aerr)
+            (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+
+            tstep_stokes = 0.67 * np.min(dx) / np.max(newvel)
+            tstep = min(tstep_stokes, tstep)
 
         totaltime += tstep
         print("   time step =", tstep/SECINKYR, "kyrs")
@@ -248,7 +323,7 @@ if __name__ == "__main__":
             bcheatvals[DIM*0 + IX] = 0
             bcheatvals[DIM*1 + IX] = 0
 
-            (A, rhs) = pylamp_diff.makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bcheat, bcheatvals, tstep)
+            (A, rhs) = pylamp_diff.makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bcheat, bcheatvals, tstep)
 
             print("Solve diffusion")
 
@@ -341,7 +416,7 @@ if __name__ == "__main__":
         #vtkarr.SetNumberOfComponents(1)
 
         if output_vtk:
-            pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:04d}.vtk".format(it))
+            pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:06d}.vtk".format(it))
 
         if it % 1 == 1:
             print("Plot")
@@ -371,7 +446,7 @@ if __name__ == "__main__":
                     #nskip=10
                     #ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
                 elif do_heatdiff:
-                    cs = plt.scatter(tr_x[:,IX], tr_x[:,IZ], marker='+', s=50, linewidths=4, c=tr_f[:,TR_TMP], cmap=plt.cm.coolwarm)
+                    cs = plt.scatter(tr_x[:,IX], tr_x[:,IZ], marker='+', s=20, linewidths=1, c=tr_f[:,TR_TMP], cmap=plt.cm.coolwarm)
                     plt.colorbar(cs)
                     ax.set_xticks(grid[IX])
                     ax.set_yticks(grid[IZ])
@@ -399,11 +474,13 @@ if __name__ == "__main__":
                     #cs = ax.pcolormesh(vzgrid)
                     #plt.colorbar(cs)
                     #ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
-                    cs = ax.pcolormesh(f_rho)
+                    #cs = ax.pcolormesh(f_rho)
+                    #plt.colorbar(cs)
+                    cs = ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='+', s=50, linewidths=4, cmap=plt.cm.coolwarm)
                     plt.colorbar(cs)
 
                     ax = fig.add_subplot(223)
-                    stride = 20
+                    stride = 10
                     ax.quiver(tr_x[::stride,IX], tr_x[::stride,IZ], trac_vel[::stride,IX]*tstep, trac_vel[::stride,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
                     ax.set_xticks(grid[IX])
                     ax.set_yticks(grid[IZ])
@@ -495,12 +572,12 @@ if __name__ == "__main__":
 #
 #   if A_i_j = dt / (rho_i_j * Cp_i_j):
 #   
-#     dT_i_j = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
-#     T_i_j - T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]
-#     -T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] - T_i_j
-#     T_i_j^old = -A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] + T_i_j
+#     dT_i_j = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]    + dt*H/(rho*Cp)
+#     T_i_j - T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ]    + dt*H/(rho*Cp)
+#     -T_i_j^old = A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] - T_i_j    + dt*H/(rho*Cp)
+#     T_i_j^old = -A_i_j * [ (qx_i_j - qx_i_j-1) / (x_i_j - x_i_j-1) + (qz_i_j - qz_i-1_j) / (x_i_j - x_i-1_j) ] + T_i_j    - dt*H/(rho*Cp)
 #
-#   T_i_j^old = -A_i_j * {
+#   T_i_j^old + dt*H/(rho*Cp) = -A_i_j * {
 #              [ -kx_i_j * (T_i_j+1 - T_i_j) / (x_i_j+1 - x_i_j) + -kx_i_j-1 * (T_i_j - T_i_j-1) / (x_i_j - x_i_j-1) ] / (x_i_j - x_i_j-1) + 
 #              [ -kz_i_j * (T_i+1_j - T_i_j) / (x_i+1_j - x_i_j) + -kz_i-1_j * (T_i_j - T_i-1_j) / (x_i_j - x_i-1_j) ] / (x_i_j - x_i-1_j) 
 #   } + T_i_j
@@ -526,6 +603,8 @@ if __name__ == "__main__":
 #           T_i_j  : -k_i_j / (x_i_j+1 - x_i_j)
 #           rhs    :  qx0
 
+
+
 # :::: x-stokes ::::
 # For vx-node vx_i+½_j
 #
@@ -550,8 +629,15 @@ if __name__ == "__main__":
 # = - ½ * (rho_i_j + rho_i+1_j) * g_x
 #
 #  Correction term by Kaus or Duretz et al:
-#    d[Sxy] / dy + T * dt * (d[rho] / dx) * vx * gx = -rho*gx (???)
-#    (Sxy_i+1_j - Sxy_i_j) / (y_i+1 - y_i)  +  T * dt * ((rho_i_j+1 - rho_i_j) / (x_j+1 - x_j)) * vx_i_j * gx
+#    d[Sxy] / dy + T * dt * (d[rho] / dx) * vx * gx + T * dt * (d[rho] / dy) * vy * gx = -rho*gx (???)    ### for x-stokes
+#    d[Syx] / dx + T * dt * (d[rho] / dy) * vy * gy + T * dt * (d[rho] / dx) * vx * gy = -rho*gy          ### for y-stokes
+#    Extra terms from these:
+#      x-stokes:
+#        vx_i_j : theta * dt * gx * (0.5 * (rho_i_j+1 + rho_i+1_j+1) - 0.5 * (rho_i_j-1 + rho_i+1_j-1)) / (x_i_j+1 - x_i_j-1)
+#        vy_i_j : theta * dt * gx * (rho_i+1_j - rho_i_j) / (y_i+1_j - y_i_j)
+#      y-stokes:
+#        vy_i_j : theta * dt * gy * (0.5 * (rho_i+1_j + rho_i+1_j+1) - 0.5 * (rho_i-1_j + rho_i-1_j+1)) / (y_i+1_j - y_i-1_j)
+#        vx_i_j : theta * dt * gy * (rho_i_j+1 - rho_i_j) / (x_i_j+1 - x_i_j)
 #
 #  T = theta = 0.5(?)
 #

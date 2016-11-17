@@ -78,7 +78,7 @@ def x2t(x, nx):
 
     return newtemp
 
-def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bc, bcvalue, tstep):
+def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bc, bcvalue, tstep):
     # Form the solution matrix for diffusion eq
     #
     # Currently can do only 2D
@@ -172,7 +172,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, bc, bcvalue, ts
             -f_k[IZ][i-1, j  ] / (grid[IZ][i] - grid[IZ][i-1]) / (gridmp[IZ][i] - gridmp[IZ][i-1])   \
             ) - 1
 
-    rhs[mat_row] = -f_T[i, j] 
+    rhs[mat_row] = -f_T[i, j] - tstep * f_H[i, j] / (f_rho[i, j] * f_Cp[i, j])
 
     #printmatrix(A, nx)
                 
