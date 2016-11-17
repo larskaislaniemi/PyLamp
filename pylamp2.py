@@ -45,12 +45,13 @@ if __name__ == "__main__":
     tstep_adv_min = 50e-9 * SECINYR
     tstep_dif_max = 50e9 * SECINYR
     tstep_dif_min = 50e-9 * SECINYR
-    output_file = False
-    output_screen = True
+    output_file = True
+    output_screen = False
     output_vtk = False
     output_stride = 10
     tdep_rho = True
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
+    max_it = 9999
 
     Tref  =   273         # reference temperature used for thermal expansion
 
@@ -155,7 +156,7 @@ if __name__ == "__main__":
 
     it = 0
     totaltime = 0
-    while (True):
+    while (it < max_it):
         it += 1
         print("\n --- Time step:", it, "---")
 
