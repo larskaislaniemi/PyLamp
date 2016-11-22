@@ -14,6 +14,7 @@ import importlib
 #import vtk
 #from vtk.util import numpy_support
 from scipy.stats import gaussian_kde
+import cProfile, pstats, io
 
 importlib.reload(pylamp_stokes)
 importlib.reload(pylamp_trac)
@@ -34,10 +35,13 @@ def pprint(*arg):
 #### MAIN ####
 if __name__ == "__main__":
 
+    pr = cProfile.Profile()
+    pr.enable()
+
     # Configurable options
-    nx    =   [33,50]         # use order z,x,y
-    L     =   [660e3, 1000e3]
-    tracdens = 40   # how many tracers per element
+    nx    =   [66,200]         # use order z,x,y
+    L     =   [660e3, 2000e3]
+    tracdens = 60   # how many tracers per element
     
     do_stokes = True
     do_advect = True
@@ -49,10 +53,11 @@ if __name__ == "__main__":
     tstep_dif_min = 50e-9 * SECINYR
     tstep_modifier = 0.67             # coefficient for automatic tsteps
 
-    output_file = True
+    output_file = False
     output_screen = False
     output_vtk = False
-    output_stride = 5
+    output_numpy = True
+    output_stride = 1
 
     tdep_rho = True
     tdep_eta = True
@@ -180,9 +185,13 @@ if __name__ == "__main__":
     tr_f[:, TR_HCD] = 4.0
     tr_f[:, TR_HCP] = 1250
     tr_f[:, TR_TMP] = 1623
-    tr_f[tr_x[:,IZ] < 50e3, TR_TMP] = 273
-    tr_f[:, TR_ACE] = 360e3
-    tr_f[:, TR_IHT] = 0.1e-6
+    tr_f[tr_x[:,IZ] < 150e3, TR_TMP] = 273
+    tr_f[:, TR_ACE] = 240e3
+    tr_f[:, TR_IHT] = 0.5e-6
+    zcrust = tr_x[:,IZ] < 50e3
+    tr_f[zcrust, TR_IHT] = 2.5e-6
+    tr_f[zcrust, TR_RH0] = 2900
+    tr_f[zcrust, TR_ET0] = 1e22
 
 
     ## Passive markers
@@ -203,6 +212,7 @@ if __name__ == "__main__":
     while (it < max_it):
         it += 1
         print("\n --- Time step:", it, "---")
+        sys.stdout.flush()
 
         print("Calculate physical properties")
         if tdep_rho:
@@ -418,6 +428,11 @@ if __name__ == "__main__":
         if output_vtk:
             pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:06d}.vtk".format(it))
 
+        if output_numpy and (it-1) % output_stride == 0:
+            np.savez("griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
+            np.savez("tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
+
+
         if it % 1 == 1:
             print("Plot")
             plt.close('all')
@@ -519,12 +534,18 @@ if __name__ == "__main__":
                 plt.colorbar(cs)
 
                 if output_file:
-                    fig.savefig("fig_{:04d}.png".format(it))
+                    fig.savefig("fig_{:06d}.png".format(it))
 
                 if output_screen:
                     plt.show()
 
                 #dummy = input()
+
+    pr.disable()
+    s = io.StringIO()
+    ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
+    ps.print_stats()
+    print(s.getvalue())
 
     sys.exit()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 DEBUG = 6
+NTHREADS = 4
 
 
 DIM = 2         # 2 or 3, currently only 2 implemented (partly...)

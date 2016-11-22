@@ -174,6 +174,15 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
     if avgscheme is None:
         avgscheme = [INTERP_AVG_ARITHMETIC + INTERP_AVG_WEIGHTED for i in range(len(gridfield))]
 
+    avgsch_has_weighted = False
+    avgsch_has_nonweighted = False
+
+    for i in range(len(gridfield)):
+        if avgscheme[i] & INTERP_AVG_WEIGHTED:
+            avgsch_has_weighted = True
+        else:
+            avgsch_has_nonweighted = True
+
     assert type(avgscheme) == type([])
     assert len(avgscheme) == len(gridfield)
 
@@ -248,45 +257,25 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         #dxnorm[1] = [(grid[d][elem[d]+1] - tr_x[:,d]) / (grid[d][elem[d]+1] - grid[d][elem[d]]) for d in range(DIM)]
         dxnorm[1] = [1 - dxnorm[0][d] for d in range(DIM)]  # this should be equivalent to the line above
 
-        #tracweight[:,0] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*dxnorm[IX])
-        #tracweight[:,1] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]])**2)**(-1) #(1 - dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*dxnorm[IX])
-        #tracweight[:,2] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]])**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (1 - dxnorm[IZ]) / (dxnorm[IZ]*(1-dxnorm[IX]))
-        #tracweight[:,3] = ((tr_x[:,IZ] - grid[IZ][elem[IZ]]+1)**2 + (tr_x[:,IX] - grid[IX][elem[IX]]+1)**2)**(-1) #(    dxnorm[IX]) * (    dxnorm[IZ]) / ((1-dxnorm[IZ])*(1-dxnorm[IX]))
-        tracweight[:,0] = (1 - dxnorm[0][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[0][IZ]*dxnorm[0][IX])
-        tracweight[:,1] = (1 - dxnorm[0][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[0][IZ])*dxnorm[1][IX])
-        tracweight[:,2] = (1 - dxnorm[1][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[1][IZ]*(1-dxnorm[0][IX]))
-        tracweight[:,3] = (1 - dxnorm[1][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[1][IZ])*(1-dxnorm[1][IX]))
+        if avgsch_has_weighted:
+            tracweight[:,0] = (1 - dxnorm[0][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[0][IZ]*dxnorm[0][IX])
+            tracweight[:,1] = (1 - dxnorm[0][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[0][IZ])*dxnorm[1][IX])
+            tracweight[:,2] = (1 - dxnorm[1][IX]) * (1 - dxnorm[0][IZ]) #/ (dxnorm[1][IZ]*(1-dxnorm[0][IX]))
+            tracweight[:,3] = (1 - dxnorm[1][IX]) * (1 - dxnorm[1][IZ]) #/ ((1-dxnorm[1][IZ])*(1-dxnorm[1][IX]))
 
-        #for itrac in range(ntrac):
-        #    traccount[ielem[itrac],jelem[itrac]] += 1
-        #    traccount[ielem[itrac]+1,jelem[itrac]] += 1
-        #    traccount[ielem[itrac],jelem[itrac]+1] += 1
-        #    traccount[ielem[itrac]+1,jelem[itrac]+1] += 1
+            np.add.at(tracweightsum, [ielem, jelem], tracweight[:,0])
+            np.add.at(tracweightsum, [ielem+1, jelem], tracweight[:,1])
+            np.add.at(tracweightsum, [ielem, jelem+1], tracweight[:,2])
+            np.add.at(tracweightsum, [ielem+1, jelem+1], tracweight[:,3])
 
-        #    tracweightsum[ielem[itrac],jelem[itrac]] += tracweight[itrac,0]
-        #    tracweightsum[ielem[itrac]+1,jelem[itrac]] += tracweight[itrac,1]
-        #    tracweightsum[ielem[itrac],jelem[itrac]+1] += tracweight[itrac,2]
-        #    tracweightsum[ielem[itrac]+1,jelem[itrac]+1] += tracweight[itrac,3]
+        if avgsch_has_nonweighted:
+            np.add.at(traccount, [ielem,jelem], 1)
+            np.add.at(traccount, [ielem+1,jelem], 1)
+            np.add.at(traccount, [ielem,jelem+1], 1)
+            np.add.at(traccount, [ielem+1,jelem+1], 1)
 
-        np.add.at(traccount, [ielem,jelem], 1)
-        np.add.at(traccount, [ielem+1,jelem], 1)
-        np.add.at(traccount, [ielem,jelem+1], 1)
-        np.add.at(traccount, [ielem+1,jelem+1], 1)
-
-        np.add.at(tracweightsum, [ielem, jelem], tracweight[:,0])
-        np.add.at(tracweightsum, [ielem+1, jelem], tracweight[:,1])
-        np.add.at(tracweightsum, [ielem, jelem+1], tracweight[:,2])
-        np.add.at(tracweightsum, [ielem+1, jelem+1], tracweight[:,3])
-
-        zeroidx = traccount == 0
-
-        zeroelemidx = zeroidx[:-1,:-1] + zeroidx[1:,:-1] + \
-                zeroidx[:-1,1:] + zeroidx[1:,1:]
-        nonzeroelemidx = np.invert(zeroelemidx > 0)
-
-        if np.sum(zeroelemidx) > 0:
-            print("!!! Zero values in elems: ")
-            print(np.where(zeroelemidx))
+        # TODO: check and repair elements where there are no tracers at all
+        # TODO: Find faster alternative for np.add.at
 
         for ifield in range(ntracfield):
             tracsum[:,:] = 0
