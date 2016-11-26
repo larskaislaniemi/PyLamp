@@ -2,57 +2,77 @@
 import numpy as np
 from pylamp_const import *
 #from bokeh.plotting import figure, output_file, show, save
-import vtk
+#import vtk
 import sys
+import gr
+from scipy.interpolate import griddata
 
-POSTTYPE_SCREEN_TRAC_TEMP = 1
-POSTTYPE_VTK = 2
+POSTTYPES = {
+        'SCREEN_TRAC_TEMP': 1,
+        'VTK':              2
+}
+
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        raise Exception("Needs two arguments, type and file")
+        raise Exception("Needs at least one argument: type")
 
-    posttype = eval(sys.argv[1])
-    tracsfilename = sys.argv[2]
+    posttype = POSTTYPES[sys.argv[1]]
 
-    #it = 1352
-    #filename = "tracs.{:06}.npz".format(it)
-    #posttype = POSTTYPE_VTK
+    if posttype == POSTTYPES['SCREEN_TRAC_TEMP']:
 
-    if posttype == POSTTYPE_SCREEN_TRAC_TEMP:
-        raise Exception("Not working")
+        if len(sys.argv) < 4:
+            raise Exception("Needed arguments: type, tracsfile, gridfile")
         
-        tracsdatafile = filename
+        tracsdatafile = sys.argv[3]
+        #griddatafile = sys.argv[2]
         tracsdata = np.load(tracsdatafile)
+        #griddata = np.load(griddatafile)
 
         tr_x = tracsdata["tr_x"]
         tr_f = tracsdata["tr_f"]
 
-        #griddatafile = "griddata.{:06d}.npz".format(it)
-        # TODO: This
-        griddata = np.load(griddatafile)
+        #gridx = griddata["gridx"]
+        #gridz = griddata["gridz"]
 
-        gridx = griddata["gridx"]
-        gridz = griddata["gridz"]
-
-        stride = 10
+        stride = 1000
 
         maxtmp = np.max(tr_f[::stride, TR_TMP])
+        mintmp = np.min(tr_f[::stride, TR_TMP])
 
-        #colors = ["#000000" for i in range(tr_x[::stride].shape[0])] 
-        colors = ["#%02x%02x%02x" % (int(255*(1-t)), int(255*((t-0.5)**2)), int(255*t)) for t in tr_f[::stride, TR_TMP]/maxtmp]
+        gr.setviewport(0.1, 0.95, 0.1, 0.95)
+        gr.setwindow(np.min(tr_x[::stride, IX]), np.max(tr_x[::stride, IX]), np.min(tr_x[::stride, IZ]), np.max(tr_x[::stride, IZ]))
+        gr.setspace(np.min(tr_f[::stride, TR_TMP]), np.max(tr_f[::stride, TR_TMP]), 0, 90)
+        gr.setmarkersize(1)
+        gr.setmarkertype(gr.MARKERTYPE_SOLID_CIRCLE)
+        gr.setcharheight(0.024)
+        gr.settextalign(2, 0)
+        gr.settextfontprec(3, 0)
 
-        output_file("fig_tractemp_{:06d}.html".format(it), title="Temperature field in tracers", mode="cdn")
-        TOOLS = "resize,crosshair,pan,wheel_zoom,box_zoom,reset,box_select,lasso_select"
-        p = figure(tools=TOOLS, x_range=(0,2000e3), y_range=(0,660e3))
-        p.scatter(tr_x[::stride,IX], tr_x[::stride,IZ], fill_color=colors, line_color=None)
-
-        #show(p)
-        save(p)
+        x = tr_x[::stride, IX]
+        y = tr_x[::stride, IZ]
+        z = tr_f[::stride, TR_TMP]
         
-    elif posttype == POSTTYPE_VTK:
+        grid = np.mgrid[0:1:200j, 0:1:66j]
+        Z = griddata((x, y), z, (grid[0], grid[1]), method='cubic')
+        X = np.unique(grid[0].flatten())
+        Y = np.unique(grid[1].flatten())
 
-        tracsdatafile = tracsfilename
+        #X, Y, Z = gr.gridit(x, y, z, 200, 200)
+        H = np.linspace(mintmp, maxtmp, 20)
+        gr.surface(X, Y, Z, 5)
+        gr.contour(X, Y, H, Z, 0)
+        gr.polymarker(x, y)
+        gr.axes(50e3, 50e3, 0, 0, 0, 0, 10e3)
+
+        gr.updatews()
+        
+    elif posttype == POSTTYPES['VTK']:
+        if len(sys.argv) < 3:
+            raise Exception("Neede arguments: type, trascfile")
+
+        tracsdatafile = sys.argv[2]
         tracsdata = np.load(tracsdatafile)
 
         tr_x = tracsdata["tr_x"]
