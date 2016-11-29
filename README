@@ -1,0 +1,28 @@
+
+==== PyLamp ====
+                                                                               
+ Python code to solve the conservation of energy, momentum and mass            
+ for incompressible viscous flow. Some feature include:
+
+ – finite differences
+ – implicit (scipy direct solver), fully-staggered grid
+ – marker-in-cell for material and temperature advection                       
+ – linear (Newtonian) viscosity                                                
+ – temperature dependent viscosity and density (buoyancy)
+
+ Code is designed for 2D/3D but currently mostly only 2D features are
+ implemented. Designed for rectilinear grid, although some implementations
+ (e.g. tracer interpolation) currently rely on using a regular grid.
+
+
+ Most of the implementations follow methods described in "Introduction
+ to Numerical Geodynamic Modelling" by Taras Gerya (ISBN 978-0-521-99754-0).
+
+ Other resources used:
+  – Duretz et al., 2011. Discretization errors and free surface stabilization
+    in the finite difference and marker‐in‐cell method for applied geodynamics: 
+    A numerical study. Geochemistry Geophysics Geosystems, vol. 12, 7.
+  – Meyer and Jenny, 2004. Conservative Velocity Interpolation for PDF Methods. 
+    Proceedings in Applied Mathematics and Mechanics, vol. 4, 1.
+
+

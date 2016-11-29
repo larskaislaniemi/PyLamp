@@ -4,34 +4,23 @@ from pylamp_const import *
 import pylamp_stokes 
 import pylamp_trac
 import pylamp_diff
-import pylamp_io
 import numpy as np
-import matplotlib.pyplot as plt
 import sys
 import scipy.sparse.linalg
-#from mpi4py import MPI
-import importlib
-#import vtk
-#from vtk.util import numpy_support
 from scipy.stats import gaussian_kde
 import cProfile, pstats, io
-#import json
 
-importlib.reload(pylamp_stokes)
-importlib.reload(pylamp_trac)
-importlib.reload(pylamp_diff)
-importlib.reload(pylamp_io)
-
-def pprint(*arg):
-    comm = MPI.COMM_WORLD
-    iproc = comm.Get_rank()
-    nproc = comm.Get_size()
-    
-    if iproc == 0:
-        print(''.join(map(str,arg)))
-    
-    return
-
+### PyLamp
+#
+# Python code to solve the conservation of energy, momentum and mass
+# incompressible viscous flow
+#
+# – implicit (scipy direct solver)
+# – marker-in-cell for material and temperature advection
+# – linear (Newtonian) viscosity
+# – temperature dependent viscosity and density (buoyancy)
+#
+#
 
 #### MAIN ####
 if __name__ == "__main__":
@@ -51,11 +40,9 @@ if __name__ == "__main__":
     tstep_dif_min = 50e-9 * SECINYR
     tstep_modifier = 0.67             # coefficient for automatic tsteps
 
-    output_file = False
-    output_screen = False
-    output_vtk = False
     output_numpy = True
     output_stride = 1
+    output_outdir = "out"
 
     tdep_rho = True
     tdep_eta = True
@@ -65,13 +52,11 @@ if __name__ == "__main__":
     
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
     max_it = 99999
-    bc_internal_type = 1           # 0 = disabled
-    surface_stabilization = False   # use if "sticky air" free surface present
+    bc_internal_type = 0           # 0 = disabled
+    surface_stabilization = False  # use if "sticky air" free surface present
     surfstab_theta = 0.5           
 
     do_profiling = False
-
-    outdir = "out"
 
 
     # Profiling
@@ -193,7 +178,7 @@ if __name__ == "__main__":
     tr_f[:, TR_HCP] = 1250
     tr_f[:, TR_TMP] = 1623
     tr_f[:, TR_ACE] = 120e3
-    tr_f[:, TR_IHT] = 0.8e-6
+    tr_f[:, TR_IHT] = 0.02e-6
     zcrust = tr_x[:,IZ] < 50e3
     tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
     tr_f[zcrust, TR_RH0] = 2900 #2900
@@ -476,121 +461,9 @@ if __name__ == "__main__":
         #vtkarr = vtk.vtkShortArray()
         #vtkarr.SetNumberOfComponents(1)
 
-        if output_vtk:
-            pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:06d}.vtk".format(it))
-
         if output_numpy and (it-1) % output_stride == 0:
-            np.savez(outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
-            np.savez(outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
-
-
-        if it % 1 == 1:
-            print("Plot")
-            plt.close('all')
-            cs = plt.pcolormesh(f_T)
-            plt.colorbar(cs)
-            plt.show()
-
-
-        if output_screen or output_file:
-            if (it-1) % output_stride == 0:
-                print("Plot")
-                plt.close('all')
-                fig = plt.figure()
-
-                ax = fig.add_subplot(221)
-                if do_advect:
-                    #ax.pcolormesh(newvel[0])
-                    #cs = ax.pcolormesh(f_rho)
-                    cs = ax.pcolormesh(np.log10(f_etas))
-                    plt.colorbar(cs)
-                    #xi = np.linspace(0, L[IX], 100)
-                    #yi = np.linspace(0, L[IZ], 100)
-                    #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_RHO], (xi[None,:], yi[:,None]), method='linear')
-                    #cs = ax.contourf(xi,yi,zi,cmap=plt.cm.jet,levels=[0,980,1020,3240,3280,3300,3320])
-                    #ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='.', linewidths=(0,))
-                    #nskip=10
-                    #ax.tripcolor(tr_x[::nskip,IX], tr_x[::nskip,IZ], tr_f[::nskip,TR_RHO])
-                elif do_heatdiff:
-                    cs = plt.scatter(tr_x[:,IX], tr_x[:,IZ], marker='+', s=20, linewidths=1, c=tr_f[:,TR_TMP], cmap=plt.cm.coolwarm)
-                    plt.colorbar(cs)
-                    ax.set_xticks(grid[IX])
-                    ax.set_yticks(grid[IZ])
-                    ax.xaxis.grid()
-                    ax.yaxis.grid()
-
-                #print("calc")
-                #idxz = tr_x[:, IZ] > 510e3
-                #xy = np.vstack([tr_x[idxz,IX],tr_x[idxz,IZ]])
-                #z = gaussian_kde(xy)(xy)
-                #print("plot")
-                #cs = ax.scatter(tr_x[idxz,IX], tr_x[idxz, IZ], c=z, s=100, edgecolor='')
-                #plt.colorbar(cs)
-
-
-
-                #ax = fig.add_subplot(222)
-                #ax.pcolormesh(newvel[1])
-                #ax.pcolormesh(np.log10(f_etan))
-
-                if do_advect:
-                    ax = fig.add_subplot(222)
-                    #vxgrid = (newvel[IX][:-1,1:] + newvel[IX][:-1,0:-1]) / 2
-                    #vzgrid = (newvel[IZ][1:,:-1] + newvel[IZ][0:-1,:-1]) / 2
-                    #cs = ax.pcolormesh(vzgrid)
-                    #plt.colorbar(cs)
-                    #ax.quiver(meshmp[IX].flatten('F'), meshmp[IZ].flatten('F'), vxgrid.flatten('F'), vzgrid.flatten('F'))
-                    #cs = ax.pcolormesh(f_rho)
-                    #plt.colorbar(cs)
-                    cs = ax.scatter(tr_x[::10,IX], tr_x[::10,IZ], c=tr_f[::10,TR_RHO], marker='+', s=50, linewidths=4, cmap=plt.cm.coolwarm)
-                    plt.colorbar(cs)
-
-                    ax = fig.add_subplot(223)
-                    stride = 10
-                    ax.quiver(tr_x[::stride,IX], tr_x[::stride,IZ], trac_vel[::stride,IX]*tstep, trac_vel[::stride,IZ]*tstep, angles='xy', scale_units='xy', scale=0.2)
-                    ax.set_xticks(grid[IX])
-                    ax.set_yticks(grid[IZ])
-                    ax.xaxis.grid()
-                    ax.yaxis.grid()
-                    #ax = fig.add_subplot(224)
-                    #ax.pcolormesh(f_rho)
-                    #plt.show()
-
-                ### divergence field
-                #ax = fig.add_subplot(222)
-                #div_dv = newvel[IZ][1:,:-1] - newvel[IZ][:-1,:-1]
-                #div_du = newvel[IX][:-1,1:] - newvel[IX][:-1,:-1]
-                #div_dz = mesh[IZ][1:,:-1] - mesh[IZ][:-1,:-1]
-                #div_dx = mesh[IX][:-1,1:] - mesh[IX][:-1,:-1]
-                ##divergence = (div_dv.T / div_dz).T[:,:-1] + (div_du / div_dx)[:-1,:]
-                #divergence = div_dv / div_dz + div_du / div_dx
-                #cs = ax.pcolormesh(divergence)
-                #plt.colorbar(cs)
-                ###CS=ax.contourf(midp_x, midp_y, divfield)
-                ###plt.colorbar(CS)
-
-                ## marker field with triangulated interpolation
-                #ax = fig.add_subplot(224)
-                #ax.tripcolor(tr_x[:,IX], tr_x[:,IZ], tr_f[:,TR_MRK])
-
-        
-                ax = fig.add_subplot(224)
-                #xi = np.linspace(0,L[IX],100)
-                #yi = np.linspace(0,L[IZ],100)
-                #zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), tr_f[:,TR_TMP], (xi[None,:], yi[:,None]), method='linear')
-                ##zi = scipy.interpolate.griddata((tr_x[:,IX], tr_x[:,IZ]), trac_dT[:,0], (xi[None,:], yi[:,None]), method='linear')
-                #cs = ax.contourf(xi,yi,zi,15,cmap=plt.cm.jet)
-                #plt.colorbar(cs)
-                cs = plt.pcolormesh(f_T)
-                plt.colorbar(cs)
-
-                if output_file:
-                    fig.savefig("fig_{:06d}.png".format(it))
-
-                if output_screen:
-                    plt.show()
-
-                #dummy = input()
+            np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
+            np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
 
     if do_profiling:
         pr.disable()
@@ -600,6 +473,11 @@ if __name__ == "__main__":
         print(s.getvalue())
 
     sys.exit()
+
+
+
+
+### Discretization of the equations:
 
 #
 #  :::: temperature ::::

@@ -1,5 +1,13 @@
 #!/usr/bin/python3
 
+###
+# tracer (marker-in-cell) related subroutines
+#
+# grid2trac: interpolate fields from regular grid to tracers
+# trac2grid: interpolate fields from tracers to regular grid
+# RK: advection of tracers by Runge-Kutta methods
+###
+
 INTERP_AVG_ARITHMETIC = 1
 INTERP_AVG_GEOMETRIC = 2
 INTERP_AVG_WEIGHTED = 4

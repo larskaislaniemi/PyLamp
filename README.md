@@ -1,1 +1,0 @@
-Python solver for stokes flow

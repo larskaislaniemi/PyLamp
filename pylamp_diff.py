@@ -1,5 +1,9 @@
 #!/usr/bin/python3
 
+###
+# subroutines to build the system of linear equations for heat diffusion problem
+###
+
 from pylamp_const import *
 from scipy.sparse import lil_matrix
 import numpy as np

@@ -9,6 +9,14 @@ from scipy.interpolate import griddata
 import os
 import glob
 
+###
+# program to convert pylamp output (npz files) to plots or vtk files
+#
+# usage: python3 pylamp_post.py [SCREEN_TRAC_TEMP|VTK] tracsfile griddatafile
+#
+# currently only the option "VTK" works
+###
+
 POSTTYPES = {
         'SCREEN_TRAC_TEMP': 1,
         'VTK':              2

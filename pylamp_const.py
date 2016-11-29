@@ -1,10 +1,9 @@
 #!/usr/bin/python3
 
 DEBUG = 6
-NTHREADS = 4
 
 
-DIM = 2         # 2 or 3, currently only 2 implemented (partly...)
+DIM = 2         # 2 or 3, currently only 2 implemented 
 
 
 IZ  = 0         # indices for different axes, this should probably
@@ -14,11 +13,12 @@ IX  = 1
 IY  = 2
 
 
-IP  = DIM
+IP  = DIM       # order number of the pressure (continuity) equation in stokes,
+                # in 2D it's 3rd, in 3D 4th, etc.
 
 
 # Physical constants
-G = [9.81, 0.0]
+G = [9.81, 0.0]             # grav. accel., length == DIM 
 SECINYR = 60*60*24*365.25
 SECINKYR = SECINYR * 1e3
 SECINMYR = SECINYR * 1e6
@@ -26,10 +26,10 @@ GASR = 8.31446 # (J / molK)
 
 
 # Tracer constants
-NFTRAC = 12      # number of tracer functions
+NFTRAC = 12     # number of tracer functions
 TR_RHO = 0      # indices for tracer functions: density
 TR_ETA = 1      # viscosity
-TR_MRK = 2      # passive marker
+TR_MRK = 2      # passive markers
 TR_TMP = 3      # temperature
 TR_HCD = 4      # heat conductivity
 TR_HCP = 5      # heat capacity

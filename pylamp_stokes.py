@@ -5,6 +5,15 @@ from scipy.sparse import lil_matrix
 import numpy as np
 import sys
 
+###
+# subroutines to build the system of linear equations to solve the stokes 
+# and continuity equations
+#
+# variable viscosity
+#
+# 2D implemented, formulation "3D ready"
+###
+
 BC_TYPE_NOSLIP = 0
 BC_TYPE_FREESLIP = 1
 
