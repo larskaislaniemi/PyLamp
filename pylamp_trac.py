@@ -53,6 +53,8 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     ielem[idxdefval] = 0
     jelem[idxdefval] = 0
 
+    dx = [grid[d][1:]-grid[d][:-1] for d in range(DIM)]
+
     ntrac = tr_x.shape[0]
 
     # distances of tra
@@ -97,7 +99,6 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             # Only 2D implemented!
             # Does not work properly yet as vz,vx are on different grids...
             # Current invocation of grid2trac is not compatible with this
-            # Add implementation of INTERP_METHOD_DIFF
 
 
             # local interpolated velocity at (x1,x2):
@@ -121,42 +122,32 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
                 raise Exception("grid2trac(): method INTERP_METHOD_VELDIV only works in 2D and expects field to be (vz,vx)")
 
             # normalize distances to unit cube
-            distx[:, 0] = distx[:, 0] / (distx[:, 0] + distx[:, 1])
-            #distx[:, 1] = distx[:, 1] / (distx[:, 0] + distx[:, 1]) 
-            #distx[:, 2] = distx[:, 2] / (distx[:, 2] + distx[:, 3])
-            #distx[:, 3] = distx[:, 3] / (distx[:, 2] + distx[:, 3])
-            distz[:, 0] = distz[:, 0] / (distz[:, 0] + distz[:, 2])
-            #distz[:, 1] = distz[:, 1] / (distz[:, 1] + distz[:, 3])
-            #distz[:, 2] = distz[:, 2] / (distz[:, 0] + distz[:, 2])
-            #distz[:, 3] = distz[:, 3] / (distz[:, 1] + distz[:, 3])
-
-            #Ux = 0.5 * (1-distx[:, 0]) * (gridfield[IX][ielem, jelem] + gridfield[IX][ielem+1,jelem]) + \
-            #        0.5 * distx[:, 0] * (gridfield[IX][ielem, jelem+1] + gridfield[IX][ielem+1,jelem+1])
-            #Uz = 0.5 * (1-distz[:, 0]) * (gridfield[IZ][ielem, jelem] + gridfield[IZ][ielem, jelem+1]) + \
-            #        0.5 * distz[:, 0] * (gridfield[IZ][ielem+1, jelem] + gridfield[IZ][ielem+1, jelem+1])
+            # assumes rectangular mesh
+            dxn = distx[:, 0] / (distx[:, 0] + distx[:, 1])
+            dzn = distz[:, 0] / (distz[:, 0] + distz[:, 2])
 
             Ux = \
-                    (1-distx[:,0]) * (1-distz[:,0]) * gridfield[IX][ielem + 0, jelem + 0] + \
-                    distx[:,0] * (1-distz[:,0]) * gridfield[IX][ielem + 0, jelem + 1] + \
-                    (1-distx[:,0]) * distz[:,0] * gridfield[IX][ielem + 1, jelem + 0] + \
-                    distx[:,0] * distz[:,0] * gridfield[IX][ielem + 1, jelem + 1]
+                    (1-dxn) * (1-dzn) * gridfield[IX][ielem + 0, jelem + 0] + \
+                    dxn * (1-dzn) * gridfield[IX][ielem + 0, jelem + 1] + \
+                    (1-dxn) * dzn * gridfield[IX][ielem + 1, jelem + 0] + \
+                    dxn * dzn * gridfield[IX][ielem + 1, jelem + 1]
             Uz = \
-                    (1-distx[:,0]) * (1-distz[:,0]) * gridfield[IZ][ielem + 0, jelem + 0] + \
-                    distx[:,0] * (1-distz[:,0]) * gridfield[IZ][ielem + 0, jelem + 1] + \
-                    (1-distx[:,0]) * distz[:,0] * gridfield[IZ][ielem + 1, jelem + 0] + \
-                    distx[:,0] * distz[:,0] * gridfield[IZ][ielem + 1, jelem + 1]
+                    (1-dxn) * (1-dzn) * gridfield[IZ][ielem + 0, jelem + 0] + \
+                    dxn * (1-dzn) * gridfield[IZ][ielem + 0, jelem + 1] + \
+                    (1-dxn) * dzn * gridfield[IZ][ielem + 1, jelem + 0] + \
+                    dxn * dzn * gridfield[IZ][ielem + 1, jelem + 1]
 
 
             # correction terms
-            C10 = (0.5 * distx[:,0] / distz[:,0]) * \
+            C10 = (0.5 * dx[IX][jelem] / dx[IZ][ielem]) * \
                     (gridfield[IZ][ielem + 0, jelem + 0] - gridfield[IZ][ielem + 1, jelem + 0] +\
                     gridfield[IZ][ielem + 1, jelem + 1] - gridfield[IZ][ielem + 0, jelem + 1])
-            C20 = (0.5 * distz[:,0] / distx[:,0]) * \
+            C20 = (0.5 * dx[IZ][ielem] / dx[IX][jelem]) * \
                     (gridfield[IX][ielem + 0, jelem + 0] - gridfield[IX][ielem + 0, jelem + 1] +\
                     gridfield[IX][ielem + 1, jelem + 1] - gridfield[IX][ielem + 1, jelem + 0])
 
-            dU1 = distx[:,0] * (1-distx[:,0]) * C10
-            dU2 = distz[:,0] * (1-distz[:,0]) * C20
+            dU1 = dxn * (1-dxn) * C10
+            dU2 = dzn * (1-dzn) * C20
 
             tr_f[:,IX] = Ux[:] + dU1[:]
             tr_f[:,IZ] = Uz[:] + dU2[:]
@@ -328,6 +319,10 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
 
         
 def RK(tr_x, grids, vels, nx, tstep, order=4):
+    # grids[IZ] holds the grid (i.e. both x and z coords) for vz 
+    # and grids[IX] for vx. I.e. grids[IZ][IX] are the x coordinates
+    # of the z-velocity locations
+
     if order != 2 and order != 4:
         raise Exception("Sorry, don't know how to do that")
 
@@ -352,7 +347,7 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
     elif order == 4:
         # TODO: Combine two calls to grid2trac() to one
         k1vel = np.zeros((tr_x.shape[0], DIM))
-        tmp   = np.zeros((tr_x.shape[0],1))
+        tmp   = np.zeros((tr_x.shape[0], DIM))
         k2vel = np.zeros_like(k1vel)
         k3vel = np.zeros_like(k1vel)
         k4vel = np.zeros_like(k1vel)
@@ -362,40 +357,33 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
         tr_x_final = np.zeros_like(k1vel)
         vel_final = np.zeros_like(k1vel)
 
-        grid2trac(tr_x, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
-        k1vel[:,IZ] = tmp[:,0]
-        grid2trac(tr_x, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
-        k1vel[:,IX] = tmp[:,0]
-        #grid2trac(tr_x, k1vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+        interpmethod = INTERP_METHOD_VELDIV
+
+        grid2trac(tr_x, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        k1vel[:,IZ] = tmp[:,IZ]
+        k1vel[:,IX] = tmp[:,IX]
         
         for d in range(DIM):
             k2loc[:,d] = tr_x[:,d] + 0.5 * tstep * k1vel[:,d]
-        grid2trac(k2loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
-        k2vel[:,IZ] = tmp[:,0]
-        grid2trac(k2loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
-        k2vel[:,IX] = tmp[:,0]
-        #grid2trac(k2loc, k2vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+        grid2trac(k2loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        k2vel[:,IZ] = tmp[:,IZ]
+        k2vel[:,IX] = tmp[:,IX]
 
         for d in range(DIM):
             k3loc[:,d] = tr_x[:,d] + 0.5 * tstep * k2vel[:,d]
-        grid2trac(k3loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
-        k3vel[:,IZ] = tmp[:,0]
-        grid2trac(k3loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
-        k3vel[:,IX] = tmp[:,0]
-        #grid2trac(k3loc, k3vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+        grid2trac(k3loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        k3vel[:,IZ] = tmp[:,IZ]
+        k3vel[:,IX] = tmp[:,IX]
 
         for d in range(DIM):
             k4loc[:,d] = tr_x[:,d] + tstep * k3vel[:,d]
-        grid2trac(k4loc, tmp, grids[IZ], [vels[IZ]], [nx[IZ], nx[IX]+1], defval=0, method=INTERP_METHOD_LINEAR)
-        k4vel[:,IZ] = tmp[:,0]
-        grid2trac(k4loc, tmp, grids[IX], [vels[IX]], [nx[IZ]+1, nx[IX]], defval=0, method=INTERP_METHOD_LINEAR)
-        k4vel[:,IX] = tmp[:,0]
-        #grid2trac(k4loc, k4vel, grid, gridvel, nx, defval=0, method=INTERP_METHOD_LINEAR)
+        grid2trac(k4loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        k4vel[:,IZ] = tmp[:,IZ]
+        k4vel[:,IX] = tmp[:,IX]
 
 
         for d in range(DIM):
             tr_x_final[:,d] = tr_x[:,d] + (1/6)*tstep * (k1vel[:,d] + k2vel[:,d] + k3vel[:,d] + k4vel[:,d])
             vel_final[:,d] = (tr_x_final[:,d] - tr_x[:,d]) / tstep
-
 
         return vel_final, tr_x_final

@@ -2,10 +2,12 @@
 import numpy as np
 from pylamp_const import *
 #from bokeh.plotting import figure, output_file, show, save
-#import vtk
+import vtk
 import sys
 import gr
 from scipy.interpolate import griddata
+import os
+import glob
 
 POSTTYPES = {
         'SCREEN_TRAC_TEMP': 1,
@@ -70,55 +72,72 @@ if __name__ == "__main__":
         
     elif posttype == POSTTYPES['VTK']:
         if len(sys.argv) < 3:
-            raise Exception("Neede arguments: type, trascfile")
+            raise Exception("Neede arguments: type, trascfile(s)")
 
-        tracsdatafile = sys.argv[2]
-        tracsdata = np.load(tracsdatafile)
+        trfields = [TR_TMP, TR_RHO, TR_ETA, TR_MRK]
+        trfieldnames = ["temp", "dens", "visc", "mark"]
 
-        tr_x = tracsdata["tr_x"]
-        tr_f = tracsdata["tr_f"]
-
-        N = tr_f[:, TR_TMP].shape[0]
-
-        stride = 200
-
-        vpoints = vtk.vtkPoints()
-        vvertices = vtk.vtkCellArray()
-
-        for i in range(N):
-            id = vpoints.InsertNextPoint(tr_x[i, IX], tr_x[i, IZ], 0*tr_x[i, IX])
-            vvertices.InsertNextCell(1)
-            vvertices.InsertCellPoint(id)
-
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(vpoints)
-        polydata.SetVerts(vvertices)
-
-        array = vtk.vtkDoubleArray()
-        array.SetNumberOfComponents(1)
-        array.SetNumberOfTuples(N)
-
-        for i in range(N):
-            array.SetValue(i, tr_f[i, TR_TMP])
-
-        array.SetName("temperature")
-        polydata.GetPointData().AddArray(array)
-
-        polydata.Modified()
-
-        if vtk.VTK_MAJOR_VERSION <= 5:
-            polydata.Update()
-
-        writer = vtk.vtkXMLPolyDataWriter()
-        writer.SetDataModeToBinary()
-        writer.SetCompressorTypeToZLib();
-        writer.SetFileName(tracsfilename + ".vtp")
-        writer.SetCompressorTypeToZLib()
-        if vtk.VTK_MAJOR_VERSION <= 5:
-            writer.SetInput(polydata)
+        if os.path.isfile(sys.argv[2]):
+            fileslist = [sys.argv[2]]
         else:
-            writer.SetInputData(polydata)
-        writer.Write()
+            fileslist = glob.glob(sys.argv[2])
+
+        fileslist.sort()
+
+        for tracsdatafile in fileslist:
+            if os.path.isfile(tracsdatafile + ".vtp"):
+                print("skip " + tracsdatafile)
+                continue
+            else:
+                print(tracsdatafile)
+            tracsdata = np.load(tracsdatafile)
+
+            tr_x = tracsdata["tr_x"]
+            tr_f = tracsdata["tr_f"]
+
+            N = tr_f[:, TR_TMP].shape[0]
+
+            stride = 1
+
+            vpoints = vtk.vtkPoints()
+            vvertices = vtk.vtkCellArray()
+
+            for i in range(N):
+                id = vpoints.InsertNextPoint(tr_x[i, IX], tr_x[i, IZ], 0*tr_x[i, IX])
+                vvertices.InsertNextCell(1)
+                vvertices.InsertCellPoint(id)
+
+            polydata = vtk.vtkPolyData()
+            polydata.SetPoints(vpoints)
+            polydata.SetVerts(vvertices)
+
+
+            for ifield in range(len(trfields)):
+                array = vtk.vtkDoubleArray()
+                array.SetNumberOfComponents(1)
+                array.SetNumberOfTuples(N)
+
+                for i in range(N):
+                    array.SetValue(i, tr_f[i, trfields[ifield]])
+
+                array.SetName(trfieldnames[ifield])
+                polydata.GetPointData().AddArray(array)
+
+                polydata.Modified()
+
+            if vtk.VTK_MAJOR_VERSION <= 5:
+                polydata.Update()
+
+            writer = vtk.vtkXMLPolyDataWriter()
+            writer.SetDataModeToBinary()
+            writer.SetCompressorTypeToZLib();
+            writer.SetFileName(tracsdatafile + ".vtp")
+            writer.SetCompressorTypeToZLib()
+            if vtk.VTK_MAJOR_VERSION <= 5:
+                writer.SetInput(polydata)
+            else:
+                writer.SetInputData(polydata)
+            writer.Write()
 
     else:
         raise Exception("Undefined plot type")

@@ -123,7 +123,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bc, bcvalu
     j = 0
 
     if bc[DIM*0 + IX] == BC_TYPE_FIXTEMP:
-        i = np.arange(0, nx[IZ])
+        i = np.arange(1, nx[IZ]-1) # corners handled at i=0 and i=nx[IZ]-1 cases
         A[gidx([i, j], nx), gidx([i, j], nx)] = 1
         rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IX]
 
@@ -137,7 +137,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bc, bcvalu
     j = nx[IX]-1
 
     if bc[DIM*1 + IX] == BC_TYPE_FIXTEMP:
-        i = np.arange(0, nx[IZ])
+        i = np.arange(1, nx[IZ]-1) # corners handled at i=0 and i=nx[IZ]-1 cases
         A[gidx([i, j], nx), gidx([i, j], nx)] = 1
         rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IX]
 

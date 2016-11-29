@@ -15,6 +15,7 @@ import importlib
 #from vtk.util import numpy_support
 from scipy.stats import gaussian_kde
 import cProfile, pstats, io
+#import json
 
 importlib.reload(pylamp_stokes)
 importlib.reload(pylamp_trac)
@@ -35,11 +36,8 @@ def pprint(*arg):
 #### MAIN ####
 if __name__ == "__main__":
 
-    pr = cProfile.Profile()
-    pr.enable()
-
     # Configurable options
-    nx    =   [66,200]         # use order z,x,y
+    nx    =   [17,50]         # use order z,x,y
     L     =   [660e3, 2000e3]
     tracdens = 60   # how many tracers per element
     
@@ -61,9 +59,9 @@ if __name__ == "__main__":
 
     tdep_rho = True
     tdep_eta = True
-    etamin = 1e18
+    etamin = 1e17
     etamax = 1e23
-    Tref = 1723
+    Tref = 1623
     
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
     max_it = 99999
@@ -71,6 +69,15 @@ if __name__ == "__main__":
     surface_stabilization = False   # use if "sticky air" free surface present
     surfstab_theta = 0.5           
 
+    do_profiling = False
+
+    outdir = "out"
+
+
+    # Profiling
+    if do_profiling:
+        pr = cProfile.Profile()
+        pr.enable()
 
     # Derived options
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
@@ -181,17 +188,37 @@ if __name__ == "__main__":
     tr_f[:, TR_RH0] = 3300
     tr_f[:, TR_ALP] = 3.5e-5
     tr_f[:, TR_MAT] = 1
-    tr_f[:, TR_ET0] = 1e19
+    tr_f[:, TR_ET0] = 1e20
     tr_f[:, TR_HCD] = 4.0
     tr_f[:, TR_HCP] = 1250
     tr_f[:, TR_TMP] = 1623
-    tr_f[tr_x[:,IZ] < 150e3, TR_TMP] = 273
-    tr_f[:, TR_ACE] = 240e3
-    tr_f[:, TR_IHT] = 0.5e-6
+    tr_f[:, TR_ACE] = 120e3
+    tr_f[:, TR_IHT] = 0.8e-6
     zcrust = tr_x[:,IZ] < 50e3
-    tr_f[zcrust, TR_IHT] = 2.5e-6
-    tr_f[zcrust, TR_RH0] = 2900
-    tr_f[zcrust, TR_ET0] = 1e22
+    tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
+    tr_f[zcrust, TR_RH0] = 2900 #2900
+    #tr_f[zcrust, TR_ET0] = 1e19 #1e22
+
+
+    ## Boundary conditions
+    bcstokes = [[]] * 4
+    bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+    bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+
+    bcheat = [[]] * 4
+    bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+    bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+    bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+    bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+    bcheatvals = [[]] * 4
+    bcheatvals[DIM*0 + IZ] = 273
+    bcheatvals[DIM*1 + IZ] = 1623
+    bcheatvals[DIM*0 + IX] = 0
+    bcheatvals[DIM*1 + IX] = 0
+
 
 
     ## Passive markers
@@ -275,11 +302,6 @@ if __name__ == "__main__":
 
         if do_stokes:
             print("Build stokes")
-            bcstokes = [[]] * 4
-            bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-            bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-            bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
-            bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
 
             (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
 
@@ -321,17 +343,6 @@ if __name__ == "__main__":
 
         if do_heatdiff:
             print("Build heatdiff")
-            bcheat = [[]] * 4
-            bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-            bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-            bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
-            bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
-
-            bcheatvals = [[]] * 4
-            bcheatvals[DIM*0 + IZ] = 273
-            bcheatvals[DIM*1 + IZ] = 1623
-            bcheatvals[DIM*0 + IX] = 0
-            bcheatvals[DIM*1 + IX] = 0
 
             (A, rhs) = pylamp_diff.makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bcheat, bcheatvals, tstep)
 
@@ -365,32 +376,72 @@ if __name__ == "__main__":
 
         if do_advect:
             print("Tracer advection")
-            # for interpolation of velocity from grid to tracers we need
-            # all tracers to be within the grid and so we need to extend the 
-            # (vz,vx) grid at x=0 and z=0 boundaries
+            # new method:
+            velsmp = [[]] * DIM
+            velsmp[IZ] = 0.5 * (newvel[IZ][1:,:-1] + newvel[IZ][:-1,:-1])
+            velsmp[IX] = 0.5 * (newvel[IX][:-1,1:] + newvel[IX][:-1,:-1])
             preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
-            grids = [                                                   \
-                    [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
-                    [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
-                    ]
-            vels  = [                                                  \
-                    np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
-                    np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
-                    ]
+            newgridx = np.insert(gridmp[IX], 0, preval[IX])
+            newgridz = np.insert(gridmp[IZ], 0, preval[IZ])
+
+            vels = [ \
+                    np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IZ], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] )), \
+                    np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IX], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] ))  \
+                   ]
 
             if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
-                vels[IX][0,:] = 0
+                vels[IX][0,:] = -vels[IX][1,:]
             elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IX][0,:] = vels[IX][1,:]
-            vels[IZ][0,:] = 0
+            vels[IZ][0,:] = -vels[IZ][1,:]
 
             if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
-                vels[IZ][:,0] = 0
+                vels[IZ][:,0] = -vels[IZ][:,1]
             elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IZ][:,0] = vels[IZ][:,1]
-            vels[IX][:,0] = 0
+            vels[IX][:,0] = -vels[IX][:,1]
 
-            trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
+            if bcstokes[DIM*1 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+                vels[IX][-1,:] = -vels[IX][-2,:]
+            elif bcstokes[DIM*1 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+                vels[IX][-1,:] = vels[IX][-2,:]
+            vels[IZ][-1,:] = -vels[IZ][-2,:]
+
+            if bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+                vels[IZ][:,-1] = -vels[IZ][:,-2]
+            elif bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+                vels[IZ][:,-2] = vels[IZ][:,-2]
+            vels[IX][:,-1] = -vels[IX][:,-2]
+
+            # old method:
+            ## for interpolation of velocity from grid to tracers we need
+            ## all tracers to be within the grid and so we need to extend the 
+            ## (vz,vx) grid at x=0 and z=0 boundaries
+            #preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
+            #grids = [                                                   \
+            #        [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
+            #        [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
+            #        ]
+            #vels  = [                                                  \
+            #        np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
+            #        np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
+            #        ]
+
+            #if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+            #    vels[IX][0,:] = 0
+            #elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+            #    vels[IX][0,:] = vels[IX][1,:]
+            #vels[IZ][0,:] = 0
+
+            #if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+            #    vels[IZ][:,0] = 0
+            #elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+            #    vels[IZ][:,0] = vels[IZ][:,1]
+            #vels[IX][:,0] = 0
+            #trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
+            # old method ends
+
+            trac_vel, tracs_new = pylamp_trac.RK(tr_x, [newgridz, newgridx], vels, nx, tstep)
             tr_x[:,:] = tracs_new[:,:]
 
             # do not allow tracers to advect outside the domain
@@ -429,8 +480,8 @@ if __name__ == "__main__":
             pylamp_io.vtkOutPoints(tr_x, tr_f[:,[TR_TMP]], ["temperature"], "tracs_{:06d}.vtk".format(it))
 
         if output_numpy and (it-1) % output_stride == 0:
-            np.savez("griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
-            np.savez("tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
+            np.savez(outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
+            np.savez(outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
 
 
         if it % 1 == 1:
@@ -541,11 +592,12 @@ if __name__ == "__main__":
 
                 #dummy = input()
 
-    pr.disable()
-    s = io.StringIO()
-    ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
-    ps.print_stats()
-    print(s.getvalue())
+    if do_profiling:
+        pr.disable()
+        s = io.StringIO()
+        ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
+        ps.print_stats()
+        print(s.getvalue())
 
     sys.exit()
 
