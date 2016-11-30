@@ -26,3 +26,16 @@
     Proceedings in Applied Mathematics and Mechanics, vol. 4, 1.
 
 
+USAGE:
+-----
+
+Modify pylamp2.py for initial and boundary conditions, run
+
+  python3 pylamp2.py
+
+Output will be in compressed numpy format (*.npz) which
+can be converted to VTK files by running 
+
+  python3 pylamp_post.py VTK 'tracs.*.npz'
+
+
