@@ -51,11 +51,11 @@ if __name__ == "__main__":
     Tref = 1623
     
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
-    max_it = 99999
+    max_it = 500 
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
-    surface_stabilization = False  # use if "sticky air" free surface present
-    surfstab_theta = 0.5           
+    surface_stabilization = False   # use if "sticky air" free surface present
+    surfstab_theta = 5e-2
 
     do_profiling = False
 
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
     tr_f[zcrust, TR_RH0] = 2900 #2900
     zair = tr_x[:,IZ] < 50e3
-    tr_f[zair, TR_RH0] = 1000
+    tr_f[zair, TR_RH0] = 2400
     tr_f[zair, TR_ALP] = 0
     tr_f[zair, TR_ET0] = 1e18
     tr_f[zair, TR_ACE] = 0
@@ -288,7 +288,7 @@ if __name__ == "__main__":
 
         if do_heatdiff:
             diffusivity = f_k[IZ] / (f_rho * f_Cp)
-            tstep_temp = 0.67 * np.min(dx)**2 / np.max(2*diffusivity)
+            tstep_temp = tstep_modifier * np.min(dx)**2 / np.max(2*diffusivity)
             tstep_temp = min(tstep_temp, tstep_dif_max)
             tstep_temp = max(tstep_temp, tstep_dif_min)
 
@@ -307,7 +307,7 @@ if __name__ == "__main__":
 
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-            tstep_stokes = 0.67 * np.min(dx) / np.max(newvel)
+            tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
             tstep_stokes = min(tstep_stokes, tstep_adv_max)
             tstep_stokes = max(tstep_stokes, tstep_adv_min)
 
@@ -328,7 +328,7 @@ if __name__ == "__main__":
             #print ("  resolve error: ", Aerr)
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-            tstep_stokes = 0.67 * np.min(dx) / np.max(newvel)
+            tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
             tstep = min(tstep_stokes, tstep)
 
         totaltime += tstep

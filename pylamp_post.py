@@ -4,7 +4,7 @@ from pylamp_const import *
 #from bokeh.plotting import figure, output_file, show, save
 import vtk
 import sys
-import gr
+#import gr
 from scipy.interpolate import griddata
 import os
 import glob
