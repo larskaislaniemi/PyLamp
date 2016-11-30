@@ -132,7 +132,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bc, bcvalu
         rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IX]
 
     elif bc[DIM*0 + IX] == BC_TYPE_FIXFLOW:
-        i = np.arange(0, nx[IZ])
+        i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j], nx), gidx([i, j+1], nx)] = f_k[IX][i, j] / (grid[IX][j+1] - grid[IX][j])
         A[gidx([i, j], nx), gidx([i, j], nx)] = -f_k[IX][i, j] / (grid[IX][j+1] - grid[IX][j])
         rhs[gidx([i, j], nx)] = bcvalue[DIM*0 + IX]
@@ -146,7 +146,7 @@ def makeDiffusionMatrix(nx, grid, gridmp, f_T, f_k, f_Cp, f_rho, f_H, bc, bcvalu
         rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IX]
 
     elif bc[DIM*1 + IX] == BC_TYPE_FIXFLOW:
-        i = np.arange(0, nx[IZ])
+        i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j], nx), gidx([i, j], nx)] = f_k[IX][i, j-1] / (grid[IX][j] - grid[IX][j-1])
         A[gidx([i, j], nx), gidx([i, j-1], nx)] = -f_k[IZ][i, j-1] / (grid[IX][j] - grid[IX][j-1])
         rhs[gidx([i, j], nx)] = bcvalue[DIM*1 + IX]

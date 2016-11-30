@@ -53,6 +53,7 @@ if __name__ == "__main__":
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
     max_it = 99999
     bc_internal_type = 0           # 0 = disabled
+                                   # 1 = keep material zero at constant temperature T=273K
     surface_stabilization = False  # use if "sticky air" free surface present
     surfstab_theta = 0.5           
 
@@ -179,10 +180,19 @@ if __name__ == "__main__":
     tr_f[:, TR_TMP] = 1623
     tr_f[:, TR_ACE] = 120e3
     tr_f[:, TR_IHT] = 0.02e-6
-    zcrust = tr_x[:,IZ] < 50e3
+    zcrust = tr_x[:,IZ] < 100e3
     tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
     tr_f[zcrust, TR_RH0] = 2900 #2900
-    #tr_f[zcrust, TR_ET0] = 1e19 #1e22
+    zair = tr_x[:,IZ] < 50e3
+    tr_f[zair, TR_RH0] = 1000
+    tr_f[zair, TR_ALP] = 0
+    tr_f[zair, TR_ET0] = 1e18
+    tr_f[zair, TR_ACE] = 0
+    tr_f[zair, TR_TMP] = 273
+    tr_f[zair, TR_MAT] = 0
+    tr_f[zair, TR_HCD] = 1e-2        # TODO: fix: very low heat cond causes problems at i=0, j=nx corner
+    tr_f[zair, TR_IHT] = 0.0
+
 
 
     ## Boundary conditions
