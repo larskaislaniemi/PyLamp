@@ -190,7 +190,7 @@ if __name__ == "__main__":
     tr_f[zair, TR_ACE] = 0
     tr_f[zair, TR_TMP] = 273
     tr_f[zair, TR_MAT] = 0
-    tr_f[zair, TR_HCD] = 1e-2        # TODO: fix: very low heat cond causes problems at i=0, j=nx corner
+    tr_f[zair, TR_HCD] = 1e-2        
     tr_f[zair, TR_IHT] = 0.0
 
 
