@@ -105,9 +105,6 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
             # conserves the divergence (=0) also during the advection
 
             # Only 2D implemented!
-            # Does not work properly yet as vz,vx are on different grids...
-            # Current invocation of grid2trac is not compatible with this
-
 
             # local interpolated velocity at (x1,x2):
             # U_i^L = (1-x1)*(1-x2)*U_i^a + x1*(1-x2)*U_i^b + (1-x1)*x2*U_i^c + x1*x2*U_i^d
