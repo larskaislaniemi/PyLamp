@@ -350,7 +350,6 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
         return trac_vel, tracs_full_h
 
     elif order == 4:
-        # TODO: Combine two calls to grid2trac() to one
         k1vel = np.zeros((tr_x.shape[0], DIM))
         tmp   = np.zeros((tr_x.shape[0], DIM))
         k2vel = np.zeros_like(k1vel)
