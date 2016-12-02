@@ -353,7 +353,7 @@ if __name__ == "__main__":
             old_tr_f = np.array(tr_f, copy=True)
 
             interp_tracvals = np.zeros((tr_f.shape[0], 1))
-            if it >= 1:
+            if it == 1:
                 # On first timestep, interpolate absolute temperature values to tracers ...
                 print("grid2trac T")
                 pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
