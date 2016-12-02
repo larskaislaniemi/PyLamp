@@ -26,7 +26,7 @@ import cProfile, pstats, io
 if __name__ == "__main__":
 
     # Configurable options
-    nx    =   [17,50]         # use order z,x,y
+    nx    =   [66,200]         # use order z,x,y
     L     =   [660e3, 2000e3]
     tracdens = 60   # how many tracers per element
     
@@ -41,7 +41,8 @@ if __name__ == "__main__":
     tstep_modifier = 0.67             # coefficient for automatic tsteps
 
     output_numpy = True
-    output_stride = 1
+    output_stride = -1
+    output_stride_ma = 2.0            # used if output_stride < 0: output fields every x million years
     output_outdir = "out"
 
     tdep_rho = True
@@ -51,7 +52,8 @@ if __name__ == "__main__":
     Tref = 1623
     
     force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
-    max_it = 500 
+    max_it = 999999
+    max_time = SECINMYR * 500
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
     surface_stabilization = False   # use if "sticky air" free surface present
@@ -180,18 +182,19 @@ if __name__ == "__main__":
     tr_f[:, TR_TMP] = 1623
     tr_f[:, TR_ACE] = 120e3
     tr_f[:, TR_IHT] = 0.02e-6
-    zcrust = tr_x[:,IZ] < 100e3
+    zcrust = tr_x[:,IZ] < 50e3
     tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
     tr_f[zcrust, TR_RH0] = 2900 #2900
-    zair = tr_x[:,IZ] < 50e3
-    tr_f[zair, TR_RH0] = 2400
-    tr_f[zair, TR_ALP] = 0
-    tr_f[zair, TR_ET0] = 1e18
-    tr_f[zair, TR_ACE] = 0
-    tr_f[zair, TR_TMP] = 273
-    tr_f[zair, TR_MAT] = 0
-    tr_f[zair, TR_HCD] = 1e-2        
-    tr_f[zair, TR_IHT] = 0.0
+    tr_f[zcrust, TR_MAT] = 2
+    #zair = tr_x[:,IZ] < 50e3
+    #tr_f[zair, TR_RH0] = 2400
+    #tr_f[zair, TR_ALP] = 0
+    #tr_f[zair, TR_ET0] = 1e18
+    #tr_f[zair, TR_ACE] = 0
+    #tr_f[zair, TR_TMP] = 273
+    #tr_f[zair, TR_MAT] = 0
+    #tr_f[zair, TR_HCD] = 1e-2        
+    #tr_f[zair, TR_IHT] = 0.0
 
 
 
@@ -231,7 +234,8 @@ if __name__ == "__main__":
 
     it = 0
     totaltime = 0
-    while (it < max_it):
+    time_last_output = 0
+    while ((it < max_it) and (totaltime < max_time)):
         it += 1
         print("\n --- Time step:", it, "---")
         sys.stdout.flush()
@@ -246,7 +250,6 @@ if __name__ == "__main__":
         if tdep_eta:
             # Effective viscosity, eta=eta(T, inherent viscosity)
             tr_f[:, TR_ETA] = tr_f[:, TR_ET0] * np.exp(tr_f[:, TR_ACE] / (GASR * tr_f[:, TR_TMP]) - tr_f[:, TR_ACE] / (GASR * Tref))
-            print (np.max(tr_f[:, TR_ETA]), np.min(tr_f[:, TR_ETA]))
             tr_f[tr_f[:, TR_ETA] < etamin, TR_ETA] = etamin
             tr_f[tr_f[:, TR_ETA] > etamax, TR_ETA] = etamax
         else:
@@ -471,9 +474,15 @@ if __name__ == "__main__":
         #vtkarr = vtk.vtkShortArray()
         #vtkarr.SetNumberOfComponents(1)
 
-        if output_numpy and (it-1) % output_stride == 0:
-            np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX])
-            np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f)
+        if output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
+            if output_stride > 0:
+                time_last_output = totaltime
+                print(" output >> ")
+            else:
+                time_last_output = SECINMYR * output_stride_ma * float(int(totaltime/(SECINMYR*output_stride_ma)))
+                print(" output >> " + str(time_last_output/SECINKYR))
+            np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], tstep=it, time=totaltime)
+            np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tstep=it, time=totaltime)
 
     if do_profiling:
         pr.disable()
