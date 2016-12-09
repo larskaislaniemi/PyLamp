@@ -26,8 +26,8 @@ import cProfile, pstats, io
 if __name__ == "__main__":
 
     # Configurable options
-    nx    =   [66,200]         # use order z,x,y
-    L     =   [660e3, 2000e3]
+    nx    =   [48,48]         # use order z,x,y
+    L     =   [660e3, 660e3] 
     tracdens = 60   # how many tracers per element
     
     do_stokes = True
@@ -38,10 +38,10 @@ if __name__ == "__main__":
     tstep_adv_min = 50e-9 * SECINYR
     tstep_dif_max = 50e9 * SECINYR
     tstep_dif_min = 50e-9 * SECINYR
-    tstep_modifier = 0.67             # coefficient for automatic tsteps
+    tstep_modifier = 0.33             # coefficient for automatic tsteps
 
     output_numpy = True
-    output_stride = -1
+    output_stride = 1
     output_stride_ma = 2.0            # used if output_stride < 0: output fields every x million years
     output_outdir = "out"
 
@@ -51,9 +51,9 @@ if __name__ == "__main__":
     etamax = 1e23
     Tref = 1623
     
-    force_trac2grid_T = True       # force tracer to grid interpolation even in the case when there is no advection
+    force_trac2grid_T = False       # force tracer to grid interpolation even in the case when there is no advection
     max_it = 999999
-    max_time = SECINMYR * 500
+    max_time = SECINMYR * 5000
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
     surface_stabilization = False   # use if "sticky air" free surface present
@@ -100,92 +100,27 @@ if __name__ == "__main__":
     tr_x = np.multiply(tr_x, L)
     tr_f = np.zeros((ntrac, NFTRAC))     # tracer functions (values)
 
+    tr_f[:, TR__ID] = np.arange(0, ntrac)
 
     ## Some material values and initial values
 
-    ## Falling block
-    # Density
-    #tr_f[:, TR_RH0] = 3300
-    #idxx = (tr_x[:, IX] < 550e3) & (tr_x[:, IX] > 450e3)
-    #idxz = (tr_x[:, IZ] < 380e3) & (tr_x[:, IZ] > 280e3)
-    ##tr_f[idxx & idxz, TR_RH0] = 3340
-    #tr_f[idxx & idxz, TR_RH0] = 3260
-    #tr_f[:, TR_ALP] = 0
-
-    ## ... sticky air test
-    #idxz2 = tr_x[:, IZ] < 50e3
-    #tr_f[idxz2, TR_RHO] = 1
-    #tr_f[idxz2, TR_ET0] = 1e17
-
-    ## Viscosity
-    #tr_f[:, TR_ET0] = 1e17
-    #tr_f[idxx & idxz, TR_ET0] = 1e20
-
-    #### RT instability, double-sided
-    #tr_f[:, TR_RH0] = 3300
-    #idxz = (tr_x[:, IZ] < 150e3)
-    #tr_f[idxz, TR_RH0] = 3340
-    #tr_f[:, TR_ALP] = 0.0
-    #tr_f[:, TR_ET0] = 1e19
-    #tr_f[idxz, TR_ET0] = 1e20
-    #idxz = (tr_x[:, IZ] > 510e3)
-    #tr_f[idxz, TR_RH0] = 3260
-    #tr_f[idxz, TR_ET0] = 1e20
-
-    ### heat diffusion test
-    #tr_f[:, TR_RH0] = 3300
-    #tr_f[:, TR_ALP] = 0.0
-    #tr_f[:, TR_HCD] = 4.0
-    #tr_f[:, TR_HCP] = 1250
-    #tr_f[:, TR_TMP] = 273
-
-    
-
-    #### lava lamp
-    #tr_f[:, TR_RH0] = 3300
-    #tr_f[:, TR_ALP] = 3.5e-5
-
-    #tr_f[:, TR_ET0] = 1e18
-    #tr_f[tr_x[:,IZ] > 560e3, TR_ET0] = 1e19
-
-    #tr_f[:, TR_HCD] = 4.0
-    #tr_f[:, TR_HCP] = 1250
-    #tr_f[:, TR_TMP] = 273
-
-
-    #### lava lamp with free surface
-    #idxzair = tr_x[:, IZ] < 0e3
+    # Stagnant lid?
     #tr_f[:, TR_RH0] = 3300
     #tr_f[:, TR_ALP] = 3.5e-5
     #tr_f[:, TR_MAT] = 1
-    #tr_f[:, TR_ET0] = 1e19
+    #tr_f[:, TR_ET0] = 1e20
     #tr_f[:, TR_HCD] = 4.0
     #tr_f[:, TR_HCP] = 1250
-    #tr_f[:, TR_TMP] = 273
-
-    #tr_f[idxzair, TR_MAT] = 0    # water
-    #tr_f[idxzair, TR_RH0] = 1000 
-    #tr_f[idxzair, TR_ALP] = 0
-    #tr_f[idxzair, TR_ET0] = 1e17
-    #tr_f[idxzair, TR_HCD] = 1e-10    # we use internal bc to force all water to constant temp
-    #tr_f[idxzair, TR_HCP] = 1000
-    #tr_f[idxzair, TR_TMP] = 273
-
-
-    # Stagnant lid?
-    tr_f[:, TR_RH0] = 3300
-    tr_f[:, TR_ALP] = 3.5e-5
-    tr_f[:, TR_MAT] = 1
-    tr_f[:, TR_ET0] = 1e20
-    tr_f[:, TR_HCD] = 4.0
-    tr_f[:, TR_HCP] = 1250
-    tr_f[:, TR_TMP] = 1623
-    tr_f[:, TR_ACE] = 120e3
-    tr_f[:, TR_IHT] = 0.02e-6
-    zcrust = tr_x[:,IZ] < 50e3
-    tr_f[zcrust, TR_IHT] = 2.5e-6 #1e-6
-    tr_f[zcrust, TR_RH0] = 2900 #2900
-    tr_f[zcrust, TR_MAT] = 2
+    #tr_f[:, TR_TMP] = 1623
+    #tr_f[:, TR_ACE] = 120e3
+    #tr_f[:, TR_IHT] = 0.02e-6 / 3300
+    #zcrust = tr_x[:,IZ] < 50e3
+    #tr_f[zcrust, TR_IHT] = 2.5e-6 / 2900 #1e-6
+    #tr_f[zcrust, TR_RH0] = 2900 #2900
+    #tr_f[zcrust, TR_MAT] = 2
+    #tr_f[zcrust, TR_ET0] = 1e22
+    #tr_f[zcrust, TR_HCD] = 2.5
+    #tr_f[zcrust, TR_HCP] = 1000
     #zair = tr_x[:,IZ] < 50e3
     #tr_f[zair, TR_RH0] = 2400
     #tr_f[zair, TR_ALP] = 0
@@ -195,6 +130,19 @@ if __name__ == "__main__":
     #tr_f[zair, TR_MAT] = 0
     #tr_f[zair, TR_HCD] = 1e-2        
     #tr_f[zair, TR_IHT] = 0.0
+
+
+    # Falling block
+    do_heatdiff = False
+    tdep_rho = False
+    tdep_eta = False
+    tr_f[:, TR_RH0] = 3300
+    tr_f[:, TR_MAT] = 1
+    tr_f[:, TR_ET0] = 1e20
+    idxb = (tr_x[:, IZ] > 200e3) & (tr_x[:, IZ] < 300e3) & (tr_x[:, IX] > 280e3) & (tr_x[:, IX] < 380e3)
+    tr_f[idxb, TR_RH0] = 3350
+    tr_f[idxb, TR_MAT] = 2
+    tr_f[idxb, TR_ET0] = 1e22
 
 
 
@@ -273,6 +221,7 @@ if __name__ == "__main__":
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
 
+
         elif do_advect:
             pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, \
                     avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_GEOMW])
@@ -284,10 +233,17 @@ if __name__ == "__main__":
                         avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+
             else:
-                ### after the first time step (if no temperature dependen rho) we only need to interpolate temperature, since there is no advection
+                ### after the first time step (if no temperature dependent rho) we only need to interpolate temperature, since there is no advection
                 ### actually, let's skip that, too, and copy the grid directly
-                f_T = newtemp
+                f_T = np.copy(newtemp)
+
+        if do_heatdiff and it > 1:
+            f_T[:, 0] = newtemp[:, 0]
+            f_T[:, -1] = newtemp[:, -1]
+            f_T[0, :] = newtemp[0, :]
+            f_T[-1, :] = newtemp[-1, :]
 
         if do_heatdiff:
             diffusivity = f_k[IZ] / (f_rho * f_Cp)
@@ -301,7 +257,7 @@ if __name__ == "__main__":
         if do_stokes:
             print("Build stokes")
 
-            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes)
+            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False)
 
             print("Solve stokes")
             # Solve it!
@@ -349,11 +305,11 @@ if __name__ == "__main__":
             x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
             newtemp = pylamp_diff.x2t(x, nx)
-            
+
             old_tr_f = np.array(tr_f, copy=True)
 
             interp_tracvals = np.zeros((tr_f.shape[0], 1))
-            if it == 1:
+            if it == 0:
                 # On first timestep, interpolate absolute temperature values to tracers ...
                 print("grid2trac T")
                 pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
@@ -362,8 +318,9 @@ if __name__ == "__main__":
                 # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
                 print("grid2trac dT")
                 newdT = newtemp - f_T
-                pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR + pylamp_trac.INTERP_METHOD_DIFF, stopOnError=True)
-                tr_f[:, TR_TMP] += interp_tracvals[:, 0]
+                #pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR + pylamp_trac.INTERP_METHOD_DIFF, stopOnError=True)
+                pylamp_trac.grid2trac(tr_x, interp_tracvals, grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + interp_tracvals[:, 0]
 
                 #### subgrid diffusion
                 ## correction at tracers
@@ -374,7 +331,11 @@ if __name__ == "__main__":
 
         if do_advect:
             print("Tracer advection")
-            # new method:
+
+            # For grid2trac called in RK() the grid needs to span outside
+            # every tracer (so that we can INTERpolate). Here we first
+            # make sure that this is the case by creating temporary
+            # grid nodes using BC values for velocity
             velsmp = [[]] * DIM
             velsmp[IZ] = 0.5 * (newvel[IZ][1:,:-1] + newvel[IZ][:-1,:-1])
             velsmp[IX] = 0.5 * (newvel[IX][:-1,1:] + newvel[IX][:-1,:-1])
@@ -388,10 +349,10 @@ if __name__ == "__main__":
                    ]
 
             if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
-                vels[IX][0,:] = -vels[IX][1,:]
+                vels[IX][0,:] = -vels[IX][1,:]  # i.e. vel is zero at bnd
             elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
-                vels[IX][0,:] = vels[IX][1,:]
-            vels[IZ][0,:] = -vels[IZ][1,:]
+                vels[IX][0,:] = vels[IX][1,:]   # i.e. vel change is zero across bnd
+            vels[IZ][0,:] = -vels[IZ][1,:]      # i.e. vel out/in of bnd is zero (no in/outflow)
 
             if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IZ][:,0] = -vels[IZ][:,1]
@@ -410,34 +371,6 @@ if __name__ == "__main__":
             elif bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IZ][:,-2] = vels[IZ][:,-2]
             vels[IX][:,-1] = -vels[IX][:,-2]
-
-            # old method:
-            ## for interpolation of velocity from grid to tracers we need
-            ## all tracers to be within the grid and so we need to extend the 
-            ## (vz,vx) grid at x=0 and z=0 boundaries
-            #preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
-            #grids = [                                                   \
-            #        [ grid[IZ], np.insert(gridmp[IX], 0, preval[IX]) ], \
-            #        [ np.insert(gridmp[IZ], 0, preval[IZ]), grid[IX] ]  \
-            #        ]
-            #vels  = [                                                  \
-            #        np.hstack((np.zeros(nx[IZ])[:,None], newvel[IZ])), \
-            #        np.vstack((np.zeros(nx[IX])[None,:], newvel[IX]))  \
-            #        ]
-
-            #if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
-            #    vels[IX][0,:] = 0
-            #elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
-            #    vels[IX][0,:] = vels[IX][1,:]
-            #vels[IZ][0,:] = 0
-
-            #if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
-            #    vels[IZ][:,0] = 0
-            #elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
-            #    vels[IZ][:,0] = vels[IZ][:,1]
-            #vels[IX][:,0] = 0
-            #trac_vel, tracs_new = pylamp_trac.RK(tr_x, grids, vels, nx, tstep)
-            # old method ends
 
             trac_vel, tracs_new = pylamp_trac.RK(tr_x, [newgridz, newgridx], vels, nx, tstep)
             tr_x[:,:] = tracs_new[:,:]
@@ -477,12 +410,17 @@ if __name__ == "__main__":
         if output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
             if output_stride > 0:
                 time_last_output = totaltime
-                print(" output >> ")
             else:
                 time_last_output = SECINMYR * output_stride_ma * float(int(totaltime/(SECINMYR*output_stride_ma)))
-                print(" output >> " + str(time_last_output/SECINKYR))
-            np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], tstep=it, time=totaltime)
-            np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tstep=it, time=totaltime)
+            if do_stokes:
+                if do_heatdiff:
+                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
+                else:
+                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newvel[IX]*0.0, tstep=it, time=totaltime)
+            else:
+                np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=grid[IZ]*0.0, velx=grid[IX]*0.0, pres=f_etan*0.0, rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
+
+            np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
 
     if do_profiling:
         pr.disable()

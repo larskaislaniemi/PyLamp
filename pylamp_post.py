@@ -12,14 +12,15 @@ import glob
 ###
 # program to convert pylamp output (npz files) to plots or vtk files
 #
-# usage: python3 pylamp_post.py [SCREEN_TRAC_TEMP|VTK] tracsfile griddatafile
+# usage: python3 pylamp_post.py [SCREEN_TRAC_TEMP|VTKTRAC|VTKGRID] {required filenames ...}
 #
-# currently only the option "VTK" works
+# currently only the option "VTKTRAC" works
 ###
 
 POSTTYPES = {
         'SCREEN_TRAC_TEMP': 1,
-        'VTK':              2
+        'VTKTRAC':          2,
+        'VTKGRID':          3
 }
 
 
@@ -78,12 +79,12 @@ if __name__ == "__main__":
 
         gr.updatews()
         
-    elif posttype == POSTTYPES['VTK']:
+    elif posttype == POSTTYPES['VTKTRAC']:
         if len(sys.argv) < 3:
-            raise Exception("Neede arguments: type, trascfile(s)")
+            raise Exception("Needed arguments: type, tracfile(s)")
 
-        trfields = [TR_TMP, TR_RHO, TR_ETA, TR_MRK]
-        trfieldnames = ["temp", "dens", "visc", "mark"]
+        trfields = [TR_TMP, TR_RHO, TR_ETA, TR_MRK, TR_MAT, TR__ID]
+        trfieldnames = ["temp", "dens", "visc", "mark", "mat", "id"]
 
         if os.path.isfile(sys.argv[2]):
             fileslist = [sys.argv[2]]
@@ -102,6 +103,7 @@ if __name__ == "__main__":
 
             tr_x = tracsdata["tr_x"]
             tr_f = tracsdata["tr_f"]
+            tr_v = tracsdata["tr_v"]
 
             N = tr_f[:, TR_TMP].shape[0]
 
@@ -121,31 +123,112 @@ if __name__ == "__main__":
 
 
             for ifield in range(len(trfields)):
-                array = vtk.vtkDoubleArray()
-                array.SetNumberOfComponents(1)
-                array.SetNumberOfTuples(N)
+                trac_array = vtk.vtkDoubleArray()
+                trac_array.SetNumberOfComponents(1)
+                trac_array.SetNumberOfTuples(N)
 
                 for i in range(N):
-                    array.SetValue(i, tr_f[i, trfields[ifield]])
+                    trac_array.SetValue(i, tr_f[i, trfields[ifield]])
 
-                array.SetName(trfieldnames[ifield])
-                polydata.GetPointData().AddArray(array)
+                trac_array.SetName(trfieldnames[ifield])
+                polydata.GetPointData().AddArray(trac_array)
 
                 polydata.Modified()
+
+            # special field, velocity
+            trac_array = vtk.vtkDoubleArray()
+            trac_array.SetNumberOfComponents(3)
+            trac_array.SetNumberOfTuples(N)
+
+            for i in range(N):
+                trac_array.SetTuple3(i, tr_v[i, IX], tr_v[i, IZ], tr_v[i, IZ]*0.0)
+
+            trac_array.SetName("velo")
+            polydata.GetPointData().AddArray(trac_array)
+            polydata.Modified()
+
 
             if vtk.VTK_MAJOR_VERSION <= 5:
                 polydata.Update()
 
-            writer = vtk.vtkXMLPolyDataWriter()
-            writer.SetDataModeToBinary()
-            writer.SetCompressorTypeToZLib();
-            writer.SetFileName(tracsdatafile + ".vtp")
-            writer.SetCompressorTypeToZLib()
+            trac_writer = vtk.vtkXMLPolyDataWriter()
+            trac_writer.SetDataModeToBinary()
+            trac_writer.SetCompressorTypeToZLib();
+            trac_writer.SetFileName(tracsdatafile + ".vtp")
+            trac_writer.SetCompressorTypeToZLib()
             if vtk.VTK_MAJOR_VERSION <= 5:
-                writer.SetInput(polydata)
+                trac_writer.SetInput(polydata)
             else:
-                writer.SetInputData(polydata)
-            writer.Write()
+                trac_writer.SetInputData(polydata)
+            trac_writer.Write()
+
+    elif posttype == POSTTYPES['VTKGRID']:
+        if len(sys.argv) < 3:
+            raise Exception("Needed arguments: type, gridfile(s)")
+
+        grfields = ["temp", "velz", "velx", "pres", "rho"]
+        grfieldnames = ["temp", "velz", "velx", "pres", "rho"]
+
+        if os.path.isfile(sys.argv[2]):
+            fileslist = [sys.argv[2]]
+        else:
+            fileslist = glob.glob(sys.argv[2])
+
+        fileslist.sort()
+
+        for griddatafile in fileslist:
+            if os.path.isfile(griddatafile + ".vtk"):
+                print("skip " + griddatafile)
+                continue
+            else:
+                print(griddatafile)
+            griddata = np.load(griddatafile)
+
+            grid = [[]] * 2
+            grid[IZ] = griddata["gridz"]
+            grid[IX] = griddata["gridx"]
+
+            N = np.prod(griddata[grfields[0]].shape)
+            Ng = len(grid[IZ]) * len(grid[IX])
+            assert N == Ng
+
+            stride = 1
+
+            # VTK coords xyz are coords xzy in PyLamp (vtk z = pylamp y = 0 always, 2D)
+            arrCoords = [vtk.vtkDoubleArray() for i in range(3)]
+            for i in grid[IX]:
+                arrCoords[IX].InsertNextValue(i)
+            for i in grid[IZ]:
+                arrCoords[IZ].InsertNextValue(i)
+            arrCoords[IY].InsertNextValue(0)
+
+            vtkgrid = vtk.vtkRectilinearGrid()
+            vtkgrid.SetDimensions(len(grid[IX]), len(grid[IZ]), 1)
+            vtkgrid.SetXCoordinates(arrCoords[IX])
+            vtkgrid.SetYCoordinates(arrCoords[IZ])
+            vtkgrid.SetZCoordinates(arrCoords[IY])
+
+            for ifield in range(len(grfields)):
+                grid_array = vtk.vtkDoubleArray()
+                grid_array.SetNumberOfComponents(1)
+                grid_array.SetNumberOfTuples(N)
+
+                for i in range(len(grid[IZ])):
+                    for j in range(len(grid[IX])):
+                        grid_array.SetTuple1(i*len(grid[IX]) + j, griddata[grfields[ifield]][i, j])
+
+                grid_array.SetName(grfieldnames[ifield])
+
+                vtkgrid.GetPointData().AddArray(grid_array)
+
+            grid_writer = vtk.vtkRectilinearGridWriter()
+            grid_writer.SetFileName(griddatafile + ".vtk")
+            if vtk.VTK_MAJOR_VERSION <= 5:
+                grid_writer.SetInput(vtkgrid)
+            else:
+                grid_writer.SetInputData(vtkgrid)
+            grid_writer.Write()
+            
 
     else:
         raise Exception("Undefined plot type")

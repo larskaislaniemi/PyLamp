@@ -248,7 +248,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
         tracweightsum = np.zeros(np.array(mesh[0].shape))
         tracweight = np.zeros((tr_x.shape[0], 4)) # 4 <- one for each corner (2D), i.e. surrounding node
 
-        dxnorm = [[]] * 2  # distance to node on left, node on right
+        dxnorm = [[]] * 2  # distance to node on left, node on right; both in each dir
         dxnorm[0] = [(tr_x[:,d] - grid[d][elem[d]]) / (grid[d][elem[d]+1] - grid[d][elem[d]]) for d in range(DIM)]
         #dxnorm[1] = [(grid[d][elem[d]+1] - tr_x[:,d]) / (grid[d][elem[d]+1] - grid[d][elem[d]]) for d in range(DIM)]
         dxnorm[1] = [1 - dxnorm[0][d] for d in range(DIM)]  # this should be equivalent to the line above

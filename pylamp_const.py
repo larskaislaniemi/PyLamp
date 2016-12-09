@@ -18,7 +18,7 @@ IP  = DIM       # order number of the pressure (continuity) equation in stokes,
 
 
 # Physical constants
-G = [9.81, 0.0]             # grav. accel., length == DIM 
+G = [9.81, 0]             # grav. accel., length == DIM 
 SECINYR = 60*60*24*365.25
 SECINKYR = SECINYR * 1e3
 SECINMYR = SECINYR * 1e6
@@ -26,7 +26,7 @@ GASR = 8.31446 # (J / molK)
 
 
 # Tracer constants
-NFTRAC = 12     # number of tracer functions
+NFTRAC = 13     # number of tracer functions
 TR_RHO = 0      # indices for tracer functions: density
 TR_ETA = 1      # viscosity
 TR_MRK = 2      # passive markers
@@ -39,6 +39,7 @@ TR_MAT = 8      # material numbering
 TR_ACE = 9      # activation energy
 TR_ET0 = 10     # inherent viscosity
 TR_IHT = 11     # internal heating, W/m3
+TR__ID = 12     # special one, unique ID
 
 
 # Numerical constants
