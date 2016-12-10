@@ -26,9 +26,9 @@ import cProfile, pstats, io
 if __name__ == "__main__":
 
     # Configurable options
-    nx    =   [48,48]         # use order z,x,y
-    L     =   [660e3, 660e3] 
-    tracdens = 60   # how many tracers per element
+    nx    =   [34,91]         # use order z,x,y
+    L     =   [660e3, 1800e3] 
+    tracdens = 40   # how many tracers per element
     
     do_stokes = True
     do_advect = True
@@ -38,11 +38,11 @@ if __name__ == "__main__":
     tstep_adv_min = 50e-9 * SECINYR
     tstep_dif_max = 50e9 * SECINYR
     tstep_dif_min = 50e-9 * SECINYR
-    tstep_modifier = 0.33             # coefficient for automatic tsteps
+    tstep_modifier = 0.67             # coefficient for automatic tsteps
 
     output_numpy = True
     output_stride = 1
-    output_stride_ma = 2.0            # used if output_stride < 0: output fields every x million years
+    output_stride_ma = 2            # used if output_stride < 0: output fields every x million years
     output_outdir = "out"
 
     tdep_rho = True
@@ -57,9 +57,12 @@ if __name__ == "__main__":
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
     surface_stabilization = False   # use if "sticky air" free surface present
-    surfstab_theta = 5e-2
+    surfstab_theta = 0.5
+    surfstab_tstep = -1 #1*SECINKYR            # if negative, a dynamic tstep is used 
 
     do_profiling = False
+
+    choose_model = 1
 
 
     # Profiling
@@ -102,47 +105,67 @@ if __name__ == "__main__":
 
     tr_f[:, TR__ID] = np.arange(0, ntrac)
 
+    
     ## Some material values and initial values
 
-    # Stagnant lid?
-    #tr_f[:, TR_RH0] = 3300
-    #tr_f[:, TR_ALP] = 3.5e-5
-    #tr_f[:, TR_MAT] = 1
-    #tr_f[:, TR_ET0] = 1e20
-    #tr_f[:, TR_HCD] = 4.0
-    #tr_f[:, TR_HCP] = 1250
-    #tr_f[:, TR_TMP] = 1623
-    #tr_f[:, TR_ACE] = 120e3
-    #tr_f[:, TR_IHT] = 0.02e-6 / 3300
-    #zcrust = tr_x[:,IZ] < 50e3
-    #tr_f[zcrust, TR_IHT] = 2.5e-6 / 2900 #1e-6
-    #tr_f[zcrust, TR_RH0] = 2900 #2900
-    #tr_f[zcrust, TR_MAT] = 2
-    #tr_f[zcrust, TR_ET0] = 1e22
-    #tr_f[zcrust, TR_HCD] = 2.5
-    #tr_f[zcrust, TR_HCP] = 1000
-    #zair = tr_x[:,IZ] < 50e3
-    #tr_f[zair, TR_RH0] = 2400
-    #tr_f[zair, TR_ALP] = 0
-    #tr_f[zair, TR_ET0] = 1e18
-    #tr_f[zair, TR_ACE] = 0
-    #tr_f[zair, TR_TMP] = 273
-    #tr_f[zair, TR_MAT] = 0
-    #tr_f[zair, TR_HCD] = 1e-2        
-    #tr_f[zair, TR_IHT] = 0.0
+    if choose_model == 1:
+        # Stagnant lid?
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_ALP] = 3.5e-5
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e20
+        tr_f[:, TR_HCD] = 4.0
+        tr_f[:, TR_HCP] = 1250
+        tr_f[:, TR_TMP] = 1623
+        tr_f[:, TR_ACE] = 120e3
+        tr_f[:, TR_IHT] = 0.02e-6 / 3300
+        zcrust = tr_x[:,IZ] < 50e3
+        tr_f[zcrust, TR_IHT] = 2.5e-6 / 2900 #1e-6
+        tr_f[zcrust, TR_RH0] = 2900 #2900
+        tr_f[zcrust, TR_MAT] = 2
+        tr_f[zcrust, TR_ET0] = 1e22
+        tr_f[zcrust, TR_HCD] = 2.5
+        tr_f[zcrust, TR_HCP] = 1000
+        #zair = tr_x[:,IZ] < 50e3
+        #tr_f[zair, TR_RH0] = 2400
+        #tr_f[zair, TR_ALP] = 0
+        #tr_f[zair, TR_ET0] = 1e18
+        #tr_f[zair, TR_ACE] = 0
+        #tr_f[zair, TR_TMP] = 273
+        #tr_f[zair, TR_MAT] = 0
+        #tr_f[zair, TR_HCD] = 1e-2        
+        #tr_f[zair, TR_IHT] = 0.0
 
+    elif choose_model == 2:
+        # Falling block
+        do_heatdiff = False
+        tdep_rho = False
+        tdep_eta = False
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e19
+        idxb = (tr_x[:, IZ] > 200e3) & (tr_x[:, IZ] < 300e3) & (tr_x[:, IX] > 280e3) & (tr_x[:, IX] < 380e3)
+        tr_f[idxb, TR_RH0] = 3350
+        tr_f[idxb, TR_MAT] = 2
+        tr_f[idxb, TR_ET0] = 1e22
 
-    # Falling block
-    do_heatdiff = False
-    tdep_rho = False
-    tdep_eta = False
-    tr_f[:, TR_RH0] = 3300
-    tr_f[:, TR_MAT] = 1
-    tr_f[:, TR_ET0] = 1e20
-    idxb = (tr_x[:, IZ] > 200e3) & (tr_x[:, IZ] < 300e3) & (tr_x[:, IX] > 280e3) & (tr_x[:, IX] < 380e3)
-    tr_f[idxb, TR_RH0] = 3350
-    tr_f[idxb, TR_MAT] = 2
-    tr_f[idxb, TR_ET0] = 1e22
+    elif choose_model == 3:
+        # Rising block with free surface
+        do_heatdiff = False
+        tdep_rho = False
+        tdep_eta = False
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e20
+        idxb = (tr_x[:, IZ] > 400e3) & (tr_x[:, IZ] < 500e3) & (tr_x[:, IX] > 280e3) & (tr_x[:, IX] < 380e3)
+        tr_f[idxb, TR_RH0] = 3280
+        tr_f[idxb, TR_MAT] = 2
+        tr_f[idxb, TR_ET0] = 1e22
+        idxa = (tr_x[:, IZ] < 50e3)
+        tr_f[idxa, TR_RH0] = 1000
+        tr_f[idxa, TR_MAT] = 0
+        tr_f[idxa, TR_ET0] = 1e18
+
 
 
 
@@ -257,7 +280,10 @@ if __name__ == "__main__":
         if do_stokes:
             print("Build stokes")
 
-            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False)
+            if surfstab_tstep < 0:
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False)
+            else:
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=surfstab_tstep, surfstab_theta=surfstab_theta)
 
             print("Solve stokes")
             # Solve it!
@@ -270,6 +296,12 @@ if __name__ == "__main__":
             tstep_stokes = min(tstep_stokes, tstep_adv_max)
             tstep_stokes = max(tstep_stokes, tstep_adv_min)
 
+            if surfstab_tstep > 0:
+                if tstep_stokes < surfstab_tstep:
+                    print ("WARNING: tstep_stokes " + str(tstep_stokes/SECINKYR) + " kyrs < surfstab_tstep " + str(surfstab_tstep/SECINKYR) + " kyrs")
+                    print ("         using surfstab_tstep")
+                tstep_stokes = surfstab_tstep
+
         if do_heatdiff and do_advect:
             tstep = min(tstep_temp, tstep_stokes)
         elif do_heatdiff:
@@ -277,18 +309,24 @@ if __name__ == "__main__":
         else:
             tstep = tstep_stokes
 
-        if do_stokes and surface_stabilization:
-            print ("Redo stokes with surface stabilization")
-            (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta)
+        if do_stokes and surface_stabilization and surfstab_tstep < 0:
+            stabRedoDone = False
+            while not stabRedoDone:
+                print ("Redo stokes with surface stabilization")
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta)
 
-            print ("Resolve stokes")
-            x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
-            #(x, Aerr) = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs, x0=x)
-            #print ("  resolve error: ", Aerr)
-            (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+                print ("Resolve stokes")
+                x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
+                #(x, Aerr) = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs, x0=x)
+                #print ("  resolve error: ", Aerr)
+                (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-            tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
-            tstep = min(tstep_stokes, tstep)
+                check_tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
+                if check_tstep_stokes < tstep:
+                    print ("WARNING: tstep after surfstab is less than actual used:", check_tstep_stokes/SECINKYR, tstep/SECINKYR)
+                    tstep = check_tstep_stokes
+                else:
+                    stabRedoDone = True
 
         totaltime += tstep
         print("   time step =", tstep/SECINKYR, "kyrs")
@@ -513,147 +551,6 @@ if __name__ == "__main__":
 
 
 
-# :::: x-stokes ::::
-# For vx-node vx_i+½_j
-#
-# Sxy_i_j = 2*etas_i_j  *  ([vx_i+½_j - vx_i-½_j] / [y_i+1 - y_i-1]] + [vy_i_j+½ - vy_i_j-½] / [x_j+1 - x_j-1]) 
-# Sxy_i+1_j = 2*etas_i+1_j  *  ([vx_i+1+½_j - vx_i+½_j] / [y_i+2 - y_i]] + [vy_i+1_j+½ - vy_i+1_j-½] / [x_j+1 - x_j-1]) 
-#
-# Sxx_i+½_j-½ = 2*etan_i+½_j-½ * (vx_i+½_j - vx_i+½_j-1) / (x_j - x_j-1)
-# Sxx_i+½_j+½ = 2*etan_i+½_j+½ * (vx_i+½_j+1 - vx_i+½_j) / (x_j+1 - x_j)
-#
-# => components:
-#
-# Sxy_i_j     = vx_i+½_j * 2*etas_i_j / (y_i+1 - y_i-1)    +    vx_i-½_j * (-1) * 2*etas_i_j / (y_i+1 - y_i-1)     +
-#               vy_i_j+½ * 2*etas_i_j / (x_j+1 - x_j-1)    +    vy_i_j-½ * (-1) * 2*etas_i_j / (x_j+1 - x_j-1)
-# Sxy_i+1_j   = vx_i+1+½_j * 2*etas_i+1_j / (y_i+2 - y_i)  +    vx_i+½_j * (-1) * 2*etas_i+1_j / (y_i+2 - y_i)     +
-#               vy_i+1_j+½ * 2*etas_i+1_j / (x_j+1 - x_j-1)+    vy_i+1_j-½ * (-1) * 2*etas_i+1_j / (x_j+1 - x_j-1)
-# Sxx_i+½_j-½ = vx_i+½_j   * 2*etan_i+½_j-½ / (x_j - x_j-1)  +    vx_i+½_j-1 * (-1) * 2*etan_i+½_j-½ / (x_j - x_j-1)
-# Sxx_i+½_j+½ = vx_i+½_j+1 * 2*etan_i+½_j+½ / (x_j+1 - x_j)  +    vx_i+½_j * (-1) * 2*etan_i+½_j+½ / (x_j+1 - x_j) 
-#
-# Stokes eq:
-
-# 2 * (Sxx_i+½_j+½ - Sxx_i+½_j-½) / (x_j+1 - x_j-1)  +  (Sxy_i+1_j - Sxy_i_j) / (y_i+1 - y_i)  +  2 * (-P_i+½_j+½ + P_i+½_j-½) / (x_j+1 - x_j-1)
-# = - ½ * (rho_i_j + rho_i+1_j) * g_x
-#
-#  Correction term by Kaus or Duretz et al:
-#    d[Sxy] / dy + T * dt * (d[rho] / dx) * vx * gx + T * dt * (d[rho] / dy) * vy * gx = -rho*gx (???)    ### for x-stokes
-#    d[Syx] / dx + T * dt * (d[rho] / dy) * vy * gy + T * dt * (d[rho] / dx) * vx * gy = -rho*gy          ### for y-stokes
-#    Extra terms from these:
-#      x-stokes:
-#        vx_i_j : theta * dt * gx * (0.5 * (rho_i_j+1 + rho_i+1_j+1) - 0.5 * (rho_i_j-1 + rho_i+1_j-1)) / (x_i_j+1 - x_i_j-1)
-#        vy_i_j : theta * dt * gx * (rho_i+1_j - rho_i_j) / (y_i+1_j - y_i_j)
-#      y-stokes:
-#        vy_i_j : theta * dt * gy * (0.5 * (rho_i+1_j + rho_i+1_j+1) - 0.5 * (rho_i-1_j + rho_i-1_j+1)) / (y_i+1_j - y_i-1_j)
-#        vx_i_j : theta * dt * gy * (rho_i_j+1 - rho_i_j) / (x_i_j+1 - x_i_j)
-#
-#  T = theta = 0.5(?)
-#
-# =>
-#    2 * (Sxx_i+½_j+½ - Sxx_i+½_j-½) / (x_j+1 - x_j-1) 
-# +  (Sxy_i+1_j - Sxy_i_j) / (y_i+1 - y_i)
-# +  -2 * (P_i+½_j+½ - P_i+½_j-½) / (x_j+1 - x_j-1)
-# =  - ½ * (rho_i_j + rho_i+1_j) * g_x
-#
-# => 
-#    2 * 
-#        (
-#          vx_i+½_j+1 * 2*etan_i+½_j+½ / (x_j+1 - x_j)  +    vx_i+½_j * (-1) * 2*etan_i+½_j+½ / (x_j+1 - x_j)   +
-#         -(vx_i+½_j   * 2*etan_i+½_j-½ / (x_j - x_j-1)  +    vx_i+½_j-1 * (-1) * 2*etan_i+½_j-½ / (x_j - x_j-1))
-#        ) / (x_j+1 - x_j-1)
-#    +
-#        (
-#          vx_i+1+½_j * 2*etas_i+1_j / (y_i+2 - y_i)  +    vx_i+½_j * (-1) * 2*etas_i+1_j / (y_i+2 - y_i)     +
-#          vy_i+1_j+½ * 2*etas_i+1_j / (x_j+1 - x_j-1)+    vy_i+1_j-½ * (-1) * 2*etas_i+1_j / (x_j+1 - x_j-1) + 
-#         -(vx_i+½_j * 2*etas_i_j / (y_i+1 - y_i-1)    +    vx_i-½_j * (-1) * 2*etas_i_j / (y_i+1 - y_i-1)     +
-#           vy_i_j+½ * 2*etas_i_j / (x_j+1 - x_j-1)    +    vy_i_j-½ * (-1) * 2*etas_i_j / (x_j+1 - x_j-1)
-#          )
-#        ) / (y_i+1 - y_i)
-#    +
-#     -2 * (P_i+½_j+½ - P_i+½_j-½) / (x_j+1 - x_j-1)
-# = - ½ * (rho_i_j + rho_i+1_j) * g_x
-#
-# components:
-# 
-#   vx_i+½_j+1                          
-#   2*2*etan_i+½_j+½ / (x_j+1 - x_j) / (x_j+1 - x_j-1)
-#
-#   vx_i+½_j
-#   2*(-1) * 2*etan_i+½_j+½ / (x_j+1 - x_j) / (x_j+1 - x_j-1) + 
-#   2*(-1)*2*etan_i+½_j-½ / (x_j - x_j-1)   / (x_j+1 - x_j-1) + 
-#   (-1) * 2*etas_i+1_j / (y_i+2 - y_i)     / (y_i+1 - y_i)   +
-#   (-1) * 2*etas_i_j / (y_i+1 - y_i-1)     / (y_i+1 - y_i)
-#
-#   vx_i+½_j-1
-#   2*(-1)*(-1) * 2*etan_i+½_j-½ / (x_j - x_j-1) / (x_j+1 - x_j-1)
-#
-#   vx_i+1+½_j
-#   2*etas_i+1_j / (y_i+2 - y_i) / (y_i+1 - y_i)
-#
-#   vy_i+1_j+½
-#   2*etas_i+1_j / (x_j+1 - x_j-1) / (y_i+1 - y_i)
-#
-#   vy_i+1_j-½
-#   (-1) * 2*etas_i+1_j / (x_j+1 - x_j-1) / (y_i+1 - y_i)
-#
-#   vx_i-½_j
-#   (-1) * 2*etas_i_j / (y_i+1 - y_i-1) / (y_i+1 - y_i)
-#
-#   vy_i_j+½ 
-#   2*etas_i_j / (x_j+1 - x_j-1) / (y_i+1 - y_i)
-#
-#   vy_i_j-½
-#   (-1) * 2*etas_i_j / (x_j+1 - x_j-1) / (y_i+1 - y_i)
-#
-#   P_i+½_j+½
-#   -2 / (x_j+1 - x_j-1)
-# 
-#   P_i+½_j-½
-#   2 / (x_j+1 - x_j-1)
-#
-#
-# :::: y-stokes ::::
-# For vy-node vy_i_j+½
-# 
-# take components from x-stokes, swap all i<->j, x<->y
-#
-#   vy_j+½_i+1                                                                  
-#   2*2*etan_j+½_i+½ / (y_i+1 - y_i) / (y_i+1 - y_i-1)                          
-#                                                                               
-#   vy_j+½_i                                                                    
-#   2*(-1) * 2*etan_j+½_i+½ / (y_i+1 - y_i) / (y_i+1 - y_i-1) +                 
-#   2*(-1)*2*etan_j+½_i-½ / (y_i - y_i-1)   / (y_i+1 - y_i-1) +                    
-#   (-1) * 2*etas_j+1_i / (x_j+2 - x_j)     / (x_j+1 - x_j)   +                 
-#   (-1) * 2*etas_j_i / (x_j+1 - x_j-1)     / (x_j+1 - x_j)                     
-#                                                                               
-#   vy_j+½_i-1                                                                  
-#   2*(-1)*(-1) * 2*etan_j+½_i-½ / (y_i - y_i-1) / (y_i+1 - y_i-1)              
-#                                                                               
-#   vy_j+1+½_i                                                                  
-#   2*etas_j+1_i / (x_j+2 - x_j) / (x_j+1 - x_j)                                
-#                                                                               
-#   vx_j+1_i+½                                                                  
-#   2*etas_j+1_i / (y_i+1 - y_i-1) / (x_j+1 - x_j)                              
-#                                                                               
-#   vx_j+1_i-½                                                                  
-#   (-1) * 2*etas_j+1_i / (y_i+1 - y_i-1) / (x_j+1 - x_j)                       
-#                                                                               
-#   vy_j-½_i                                                                    
-#   (-1) * 2*etas_j_i / (x_j+1 - x_j-1) / (x_j+1 - x_j)                         
-#                                                                               
-#   vx_j_i+½                                                                    
-#   2*etas_j_i / (y_i+1 - y_i-1) / (x_j+1 - x_j)                                
-#                                                                               
-#   vx_j_i-½                                                                    
-#   (-1) * 2*etas_j_i / (y_i+1 - y_i-1) / (x_j+1 - x_j)                         
-#                                                                               
-#   P_j+½_i+½                                                                   
-#   -2 / (y_i+1 - y_i-1)                                                        
-#                                                                               
-#   P_j+½_i-½                                                                   
-#   2 / (y_i+1 - y_i-1)   
-#
-#
 # :::: continuity ::::
 # For P-node P_i-½_j+½
 # NB! Here indices should have all +1, i.e. pressure ghost points are on the right

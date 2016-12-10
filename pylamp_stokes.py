@@ -327,12 +327,6 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
             -2 * f_etas[i, j+1] / (grid[IX][j+2] - grid[IX][j  ]) / (grid[IX][j+1] - grid[IX][j  ]) + \
             -2 * f_etas[i,   j] / (grid[IX][j+1] - grid[IX][j-1]) / (grid[IX][j+1] - grid[IX][j  ])
 
-    if surfstab:
-        if tstep is None:
-            raise Exception("surface stabilization needs predetermined tstep")
-        A[mat_row, gidx([i  , j  ], nx, DIM) + IZ] += surfstab_theta * tstep * G[IZ] * 0.5 * (f_rho[i+1,j]+f_rho[i+1,j+1]-f_rho[i-1,j]-f_rho[i-1,j+1]) / (grid[IZ][i+1] - grid[IZ][i-1])
-        A[mat_row, gidx([i  , j  ], nx, DIM) + IX] += surfstab_theta * tstep * G[IZ] * (f_rho[i,j+1]-f_rho[i,j]) / (grid[IX][j+1] - grid[IX][j])
-
     # vy_j+½_i+1
     A[mat_row, gidx([i+1, j  ], nx, DIM) + IZ] =  4 * f_etan[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i]) / (grid[IZ][i+1] - grid[IZ][i-1])
 
@@ -363,6 +357,12 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
     # P_j+½_i-½
     A[mat_row, gidx([i-1, j  ], nx, DIM) + IP] =  2 * Kcont / (grid[IZ][i+1] - grid[IZ][i-1]) 
 
+    if surfstab:
+        if tstep is None:
+            raise Exception("surface stabilization needs predetermined tstep")
+        A[mat_row, gidx([i, j], nx, DIM) + IX] += surfstab_theta * tstep * G[IZ] * 0.5 * (f_rho[i, j+1] + f_rho[i+1, j+1] - f_rho[i, j-1] - f_rho[i+1, j-1]) / (grid[IX][j+1] - grid[IX][j-1]) 
+        A[mat_row, gidx([i, j], nx, DIM) + IZ] += surfstab_theta * tstep * G[IZ] * 0.5 * (f_rho[i+1, j] + f_rho[i+1, j+1] - f_rho[i-1, j] - f_rho[i-1, j+1]) / (grid[IZ][i+1] - grid[IZ][i-1]) 
+
     lc[mat_row] += 1
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i, j+1]) * G[IZ] 
                 
@@ -386,12 +386,6 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
     -2 * f_etas[i+1, j] / (grid[IZ][i+2] - grid[IZ][i  ]) / (grid[IZ][i+1] - grid[IZ][i  ]) + \
     -2 * f_etas[i,   j] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IZ][i+1] - grid[IZ][i  ])  
     # coefficients were -4, -4, -2, -2
-
-    if surfstab:
-        if tstep is None:
-            raise Exception("surface stabilization needs predetermined tstep")
-        A[mat_row, gidx([i  , j  ], nx, DIM) + IX] += surfstab_theta * tstep * G[IX] * 0.5 * (f_rho[i,j+1]+f_rho[i+1,j+1]-f_rho[i,j-1]-f_rho[i+1,j-1]) / (grid[IX][j+1] - grid[IX][j-1])
-        A[mat_row, gidx([i  , j  ], nx, DIM) + IY] += surfstab_theta * tstep * G[IX] * (f_rho[i+1,j]-f_rho[i,j]) / (grid[IZ][i+1] - grid[IZ][i])
 
     #coefficients below were 4 4 2 -2 2 -2 2 -2 -2 2
     # vx_i+½_j+1
@@ -423,6 +417,12 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
 
     # P_i+½_j-½
     A[mat_row, gidx([i  , j-1], nx, DIM) + IP] =  2 * Kcont / (grid[IX][j+1] - grid[IX][j-1])
+
+    if surfstab:
+        if tstep is None:
+            raise Exception("surface stabilization needs predetermined tstep")
+        A[mat_row, gidx([i, j], nx, DIM) + IX] += surfstab_theta * tstep * G[IX] * 0.5 * (f_rho[i, j+1] + f_rho[i+1, j+1] - f_rho[i, j-1] - f_rho[i+1, j-1]) / (grid[IX][j+1] - grid[IX][j-1]) 
+        A[mat_row, gidx([i, j], nx, DIM) + IZ] += surfstab_theta * tstep * G[IX] * 0.5 * (f_rho[i+1, j] + f_rho[i+1, j+1] - f_rho[i-1, j] - f_rho[i-1, j+1]) / (grid[IZ][i+1] - grid[IZ][i-1]) 
 
     lc[mat_row] += 1
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i+1, j]) * G[IX] 
