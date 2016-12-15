@@ -20,7 +20,6 @@ INTERP_METHOD_ELEM = 4
 INTERP_METHOD_NEAREST = 8
 INTERP_METHOD_LINEAR = 16   # actually, bilinear, i.e. non-linear ...
 INTERP_METHOD_VELDIV = 32
-INTERP_METHOD_DIFF = 64
 
 from pylamp_const import *
 import numpy as np
@@ -72,8 +71,8 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     for di in [0,1]:
         for dj in [0,1]:
             icorner = di * 2 + dj
-            distz[:,icorner] = np.abs(tr_x[:,IZ] - grid[IZ][ielem+di])
-            distx[:,icorner] = np.abs(tr_x[:,IX] - grid[IX][jelem+dj])
+            distz[:,icorner] = (1-2*di) * (tr_x[:,IZ] - grid[IZ][ielem+di])
+            distx[:,icorner] = (1-2*dj) * (tr_x[:,IX] - grid[IX][jelem+dj])
 
     if method & INTERP_METHOD_NEAREST:
         disttot = distz**2 + distx**2
@@ -83,21 +82,18 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
 
     for ifield in range(nfield):
         if method & INTERP_METHOD_NEAREST:
-            if method & INTERP_METHOD_DIFF:
-                tr_f[:,ifield] += gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
-            else:
-                tr_f[:,ifield] = gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
+            tr_f[:,ifield] = gridfield[ifield][ielem + nearestcorner_di, jelem + nearestcorner_dj]
         elif method & INTERP_METHOD_LINEAR:
-            xavg1 = gridfield[ifield][ielem + 0, jelem + 0] * distx[:, 1] + gridfield[ifield][ielem + 0, jelem + 1] * distx[:, 0]
-            xavg1 = xavg1 / (distx[:, 0] + distx[:, 1])
-            xavg2 = gridfield[ifield][ielem + 1, jelem + 0] * distx[:, 3] + gridfield[ifield][ielem + 1, jelem + 1] * distx[:, 2]
-            xavg2 = xavg2 / (distx[:, 1] + distx[:, 2])
-            zavg1 = xavg1 * distz[:,2] + xavg2 * distz[:,0]
-            zavg1 = zavg1 / (distz[:,2] + distz[:,0])
-            if method & INTERP_METHOD_DIFF:
-                tr_f[:,ifield] += zavg1[:]
-            else:
-                tr_f[:,ifield] = zavg1[:]
+            # normalize distances to unit cube
+            # assumes rectangular mesh
+            dxn = distx[:, 0] / (distx[:, 0] + distx[:, 1])
+            dzn = distz[:, 0] / (distz[:, 0] + distz[:, 2])
+    
+            tr_f[:,ifield] = \
+                    (1-dxn) * (1-dzn) * gridfield[ifield][ielem + 0, jelem + 0] + \
+                    dxn * (1-dzn) * gridfield[ifield][ielem + 0, jelem + 1] + \
+                    (1-dxn) * dzn * gridfield[ifield][ielem + 1, jelem + 0] + \
+                    dxn * dzn * gridfield[ifield][ielem + 1, jelem + 1]
 
         elif method & INTERP_METHOD_VELDIV:
             # See Wang et al 2015 (or Meyer and Jenny 2004)
