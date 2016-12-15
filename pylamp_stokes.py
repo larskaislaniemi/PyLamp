@@ -17,6 +17,7 @@ import sys
 BC_TYPE_NOSLIP = 0
 BC_TYPE_FREESLIP = 1
 BC_TYPE_CYCLIC = 2
+BC_TYPE_FLOWTHRU = 4
 
 def gidx(idxs, nx, dim):
     # Global index for the matrix in linear system of equations
@@ -157,40 +158,37 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
     # at z = 0
     i = 0
 
+    # vx
+    j = np.arange(1, nx[IX]-1)
     if bc[DIM*0 + IZ] == BC_TYPE_NOSLIP:
         # vx extrapolated to be zero from two internal nodes
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i,   j], nx, DIM) + IX] = Kcont * (-1 / (grid[IZ][i+2] - grid[IZ][i]) + (-1) / (grid[IZ][i+1] - grid[IZ][i])) 
         A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * (1 / (grid[IZ][i+2] - grid[IZ][i]))
-
         lc[gidx([i, j], nx, DIM) + IX] += 1
-        
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
     elif bc[DIM*0 + IZ] == BC_TYPE_FREESLIP:
         # vx equals to vx in grid point next to bnd
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
     elif bc[DIM*0 + IZ] == BC_TYPE_CYCLIC:
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([nx[IZ]-1, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
+    # vz
+    j = np.arange(0, nx[IX]-1)
     if bc[DIM*0 + IZ] == BC_TYPE_CYCLIC:
-        j = np.arange(0, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         A[gidx([i, j], nx, DIM) + IZ, gidx([nx[IZ]-1, j], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
     else:
         # vz = 0, no flowing through the boundary
-        j = np.arange(0, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
@@ -198,60 +196,57 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
 
     # at z = Lz
     i = nx[IZ]-1
-
+        
+    # vx
+    j = np.arange(1, nx[IX]-1)
     if bc[DIM*1 + IZ] == BC_TYPE_NOSLIP:
         # vx extrapolated to be zero from two internal nodes
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (-1 / (grid[IZ][i-2] - grid[IZ][i]) + (-1) / (grid[IZ][i-1] - grid[IZ][i]))
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * (1 / (grid[IZ][i-2] - grid[IZ][i]))
-
         lc[gidx([i-1, j], nx, DIM) + IX] += 1
-        
         rhs[gidx([i-1, j], nx, DIM) + IX] = 0
 
     elif bc[DIM*1 + IZ] == BC_TYPE_FREESLIP:
         # vx equals to vx in grid point next to bnd
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i-1, j], nx, DIM) + IX] += 1
         rhs[gidx([i-1, j], nx, DIM) + IX] = 0
 
     elif bc[DIM*1 + IZ] == BC_TYPE_CYCLIC:
-        j = np.arange(1, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([0, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
-
+    
+    # vz
+    j = np.arange(0, nx[IX]-1)
     if bc[DIM*1 + IZ] == BC_TYPE_CYCLIC:
-        j = np.arange(0, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         A[gidx([i, j], nx, DIM) + IZ, gidx([0, j], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
     else:
         # vz = 0
-        j = np.arange(0, nx[IX]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
         
 
-    # at x = 0
+    # BND x = 0
     j = 0
 
-    if bc[DIM*0 + IX] == BC_TYPE_NOSLIP:
+    # vz
+    i = np.arange(1, nx[IZ]-1)
+    if bc[DIM*0 + IX] & BC_TYPE_NOSLIP:
         # vz extrapolated to be zero from two internal nodes
-        i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont * (-1 / (grid[IX][j+2] - grid[IX][j]) + (-1) / (grid[IX][j+1] - grid[IX][j])) 
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j+1], nx, DIM) + IZ] = Kcont * (1 / (grid[IX][j+2] - grid[IX][j]))
-
         lc[gidx([i, j], nx, DIM) + IZ] += 1
-        
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
-    elif bc[DIM*0 + IX] == BC_TYPE_FREESLIP:
+
+    elif bc[DIM*0 + IX] & BC_TYPE_FREESLIP:
         # vz equals to vz in grid point next to bnd
         i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
@@ -259,63 +254,73 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-    elif bc[DIM*0 + IX] == BC_TYPE_CYCLIC:
+    elif bc[DIM*0 + IX] & BC_TYPE_CYCLIC:
         i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, nx[IX]-1], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-    if bc[DIM*0 + IX] == BC_TYPE_CYCLIC:
-        i = np.arange(0, nx[IZ]-1)
+    # vx
+    i = np.arange(0, nx[IZ]-1)    
+    if bc[DIM*0 + IX] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = -Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([i, nx[IX]-1], nx, DIM) + IX] = Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
+    elif bc[DIM*0 + IX] & BC_TYPE_FLOWTHRU:
+        # dvx/dx = 0
+        A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = -Kcont
+        A[gidx([i, j], nx, DIM) + IX, gidx([i, j+1], nx, DIM) + IX] = Kcont
+        lc[gidx([i, j], nx, DIM) + IX] += 1
+        rhs[gidx([i, j], nx, DIM) + IX] = 0
     else:
         # vx = 0
-        i = np.arange(0, nx[IZ]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
 
-    # at x = Lx
+    ### BND x = Lx
     j = nx[IX]-1
 
-    if bc[DIM*1 + IX] == BC_TYPE_NOSLIP:
+    # vz
+    i = np.arange(1, nx[IZ]-1)
+    if bc[DIM*1 + IX] & BC_TYPE_NOSLIP:
         # vz extrapolated to be zero from two internal nodes
-        i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (-1 / (grid[IX][j-2] - grid[IX][j]) + (-1) / (grid[IX][j-1] - grid[IX][j]))
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * (1 / (grid[IX][j-2] - grid[IX][j]))
-
         lc[gidx([i, j-1], nx, DIM) + IZ] += 1 
-
         rhs[gidx([i, j-1], nx, DIM) + IZ] = 0
-    elif bc[DIM*1 + IX] == BC_TYPE_FREESLIP:
+
+    elif bc[DIM*1 + IX] & BC_TYPE_FREESLIP:
         # vz equals to vz in grid point next to bnd
-        i = np.arange(1, nx[IZ]-1)
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j-1], nx, DIM) + IZ] += 1
         rhs[gidx([i, j-1], nx, DIM) + IZ] = 0
 
-    elif bc[DIM*1 + IX] == BC_TYPE_CYCLIC:
-        i = np.arange(1, nx[IZ]-1)
+    elif bc[DIM*1 + IX] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, 0], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-    if bc[DIM*1 + IX] == BC_TYPE_CYCLIC:
-        i = np.arange(0, nx[IZ]-1)
+    # vx
+    i = np.arange(0, nx[IZ]-1)            
+    if bc[DIM*1 + IX] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = -Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([i, 0], nx, DIM) + IX] = Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
+    elif bc[DIM*1 + IX] & BC_TYPE_FLOWTHRU:
+        # dvx/dx = 0
+        A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
+        A[gidx([i, j], nx, DIM) + IX, gidx([i, j-1], nx, DIM) + IX] = -Kcont
+        lc[gidx([i, j], nx, DIM) + IX] += 1
+        rhs[gidx([i, j], nx, DIM) + IX] = 0
     else:
         # vx = 0
-        i = np.arange(0, nx[IZ]-1)
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
@@ -514,8 +519,8 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
 
     
     # one pressure point with absolute pressure value
-    i = 2
-    j = 3
+    i = 1
+    j = 1
     mat_row = gidx([i, j], nx, DIM) + IP
     A[mat_row, :] = 0
     A[mat_row, gidx([i, j  ], nx, DIM) + IP] = Kcont

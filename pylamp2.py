@@ -49,7 +49,7 @@ if __name__ == "__main__":
     tstep_modifier = 0.67             # coefficient for automatic tsteps
 
     output_numpy = True
-    output_stride = 2
+    output_stride = 1
     output_stride_ma = 1            # used if output_stride < 0: output fields every x million years
     output_outdir = "out"
 
@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
     do_profiling = False
 
-    choose_model = 11
+    choose_model = 1
 
 
     # Profiling
@@ -210,10 +210,10 @@ if __name__ == "__main__":
 
     ## Boundary conditions
     bcstokes = [[]] * 4
-    bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-    bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
-    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+    bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+    bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
 
     bcheat = [[]] * 4
     bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
@@ -470,45 +470,49 @@ if __name__ == "__main__":
                     np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IX], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] ))  \
                    ]
 
-            if bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+            if bcstokes[DIM*0 + IZ] & pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IX][0,:] = -vels[IX][1,:]  # i.e. vel is zero at bnd
-                vels[IZ][0,:] = -vels[IZ][1,:]      # i.e. vel out/in of bnd is zero (no in/outflow)
-            elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+                vels[IZ][0,:] = -vels[IZ][1,:]  # i.e. vel out/in of bnd is zero (no in/outflow)
+            elif bcstokes[DIM*0 + IZ] & pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IX][0,:] = vels[IX][1,:]   # i.e. vel change is zero across bnd
-                vels[IZ][0,:] = -vels[IZ][1,:]      # i.e. vel out/in of bnd is zero (no in/outflow)
-            elif bcstokes[DIM*0 + IZ] == pylamp_stokes.BC_TYPE_CYCLIC:
+                vels[IZ][0,:] = -vels[IZ][1,:]  # i.e. vel out/in of bnd is zero (no in/outflow)
+            elif bcstokes[DIM*0 + IZ] & pylamp_stokes.BC_TYPE_CYCLIC:
                 vels[IX][0,:] = vels[IX][-2,:]  
                 vels[IZ][0,:] = vels[IZ][-2,:]
 
-            if bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+            if bcstokes[DIM*0 + IX] & pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IZ][:,0] = -vels[IZ][:,1]
                 vels[IX][:,0] = -vels[IX][:,1]
-            elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+            elif bcstokes[DIM*0 + IX] & pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IZ][:,0] = vels[IZ][:,1]
                 vels[IX][:,0] = -vels[IX][:,1]
-            elif bcstokes[DIM*0 + IX] == pylamp_stokes.BC_TYPE_CYCLIC:
+            elif bcstokes[DIM*0 + IX] & pylamp_stokes.BC_TYPE_CYCLIC:
                 vels[IZ][:,0] = vels[IZ][:,-2]
                 vels[IX][:,0] = vels[IX][:,-2]
+            if bcstokes[DIM*0 + IX] & pylamp_stokes.BC_TYPE_FLOWTHRU:
+                vels[IX][:,0] = vels[IX][:,1]
 
-            if bcstokes[DIM*1 + IZ] == pylamp_stokes.BC_TYPE_NOSLIP:
+            if bcstokes[DIM*1 + IZ] & pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IX][-1,:] = -vels[IX][-2,:]
                 vels[IZ][-1,:] = -vels[IZ][-2,:]
-            elif bcstokes[DIM*1 + IZ] == pylamp_stokes.BC_TYPE_FREESLIP:
+            elif bcstokes[DIM*1 + IZ] & pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IX][-1,:] = vels[IX][-2,:]
                 vels[IZ][-1,:] = -vels[IZ][-2,:]
-            elif bcstokes[DIM*1 + IZ] == pylamp_stokes.BC_TYPE_CYCLIC:
+            elif bcstokes[DIM*1 + IZ] & pylamp_stokes.BC_TYPE_CYCLIC:
                 vels[IX][-1,:] = vels[IX][1,:]
                 vels[IZ][-1,:] = vels[IZ][1,:]
 
-            if bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_NOSLIP:
+            if bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IZ][:,-1] = -vels[IZ][:,-2]
                 vels[IX][:,-1] = -vels[IX][:,-2]
-            elif bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_FREESLIP:
+            elif bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_FREESLIP:
                 vels[IZ][:,-1] = vels[IZ][:,-2]
                 vels[IX][:,-1] = -vels[IX][:,-2]
-            elif bcstokes[DIM*1 + IX] == pylamp_stokes.BC_TYPE_CYCLIC:
+            elif bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_CYCLIC:
                 vels[IZ][:,-1] = vels[IZ][:,1]
                 vels[IX][:,-1] = vels[IX][:,1]
+            if bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_FLOWTHRU:
+                vels[IX][:,-1] = vels[IX][:,-2]
 
 
             MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
@@ -525,7 +529,7 @@ if __name__ == "__main__":
 
             # do not allow tracers to advect outside the domain
             for d in range(DIM):
-                if bcstokes[d*0 + IX] == pylamp_stokes.BC_TYPE_CYCLIC :
+                if bcstokes[d*0 + IX] & pylamp_stokes.BC_TYPE_CYCLIC :
                     tr_x[tr_x[:,d] <= 0, d] += L[d]
                     tr_x[tr_x[:,d] >= L[d], d] -= L[d]
                 tr_x[tr_x[:,d] <= 0, d] = EPS
