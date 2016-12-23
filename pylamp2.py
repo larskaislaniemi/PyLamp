@@ -37,10 +37,13 @@ if __name__ == "__main__":
     nx    =   [33+1,45+1]         # use order z,x,y
     L     =   [660e3, 1800e3] 
     tracdens = 40   # how many tracers per element
+    tracs_fence_enabled = True  # stop tracers at the boundary
+                                # if they are about to flow out
     
     do_stokes = True
     do_advect = True
     do_heatdiff = True
+    do_subgrid_heatdiff = True
 
     tstep_adv_max = 50e9 * SECINYR
     tstep_adv_min = 50e-9 * SECINYR
@@ -279,19 +282,25 @@ if __name__ == "__main__":
 
         pprint("Properties trac2grid")
 
+        if do_advect:
+            idx_tracs_inside = tr_f[:, TR__ID] >= 0
+        else:
+            idx_tracs_inside = np.zeros(ntrac)
+            idx_tracs_inside[:] = True
+
         if do_advect and do_heatdiff:
             # Interpolation done once on each different grid, multiple value fields at once
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA, TR_HCP, TR_TMP, TR_IHT, TR_MAT]], mesh, grid, [f_rho, f_etas, f_Cp, f_T, f_H, f_mat], nx, \
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_RHO, TR_ETA, TR_HCP, TR_TMP, TR_IHT, TR_MAT]], mesh, grid, [f_rho, f_etas, f_Cp, f_T, f_H, f_mat], nx, \
                     avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_GEOMW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMW])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMW])
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
 
 
         elif do_advect:
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, \
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_RHO, TR_ETA]], mesh, grid, [f_rho, f_etas], nx, \
                     avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_GEOMW])
-            pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
+            pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], tr_f[idx_tracs_inside,[TR_ETA]], meshmp, gridmp, [f_etan], nx, avgscheme=[pylamp_trac.INTERP_AVG_GEOMETRIC])
 
         elif do_heatdiff:
             if it == 1 or tdep_rho or force_trac2grid_T:
@@ -415,15 +424,17 @@ if __name__ == "__main__":
 
             if it == 1:
                 # On first timestep interpolate absolute temperature values to tracers ...
+                # Also, assume that all tracers are within the domain at this point
                 pprint("grid2trac T")
                 pylamp_trac.grid2trac(tr_x[IPROC::NPROC], l_interp_tracvals[IPROC::NPROC], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
                 MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
                 tr_f[:, TR_TMP] = g_interp_tracvals[:, 0]
             else:
                 # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
+                # (and exclude those that are outside the domain)
                 pprint("grid2trac dT")
                 newdT = newtemp - f_T
-                pylamp_trac.grid2trac(tr_x[IPROC::NPROC], l_interp_tracvals[IPROC::NPROC], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                pylamp_trac.grid2trac(tr_x[idx_tracs_inside][IPROC::NPROC], l_interp_tracvals[idx_tracs_inside][IPROC::NPROC], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
                 MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
                 tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + g_interp_tracvals[:, 0]
 
@@ -439,17 +450,20 @@ if __name__ == "__main__":
                 #    tr_f[idxmat, TR_TMP] = 273
                 
                 ## subgrid diffusion
-                # NB! Assumes regular grid
                 # correction at tracers
-                d = 0.5
-                subgrid_corr_dt0 = tr_f[:, TR_HCP] * tr_f[:, TR_RHO] / (tr_f[:, TR_HCD] * ((2/dx[IX])**2 + (2/dx[IZ])**2))
-                subgrid_corr_T = old_tr_f[:, TR_TMP] - (old_tr_f[:, TR_TMP] - tr_f[:, TR_TMP]) * np.exp(-d * tstep / subgrid_corr_dt0)
-                # compensation at eulerian nodes
-                dT_subgrid_diff = subgrid_corr_T - tr_f[:, TR_TMP]
-                dT_subgrid_diff_back = np.zeros_like(dT_subgrid_diff)
-                pylamp_trac.trac2grid(tr_x, dT_subgrid_diff[:, None], mesh, grid, [f_sgc], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
-                pylamp_trac.grid2trac(tr_x, dT_subgrid_diff_back[:,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
-                tr_f[:, TR_TMP] = subgrid_corr_T - dT_subgrid_diff_back
+                # NB! Assumes regular grid
+                if do_subgrid_heatdiff:
+                    d = 0.5
+                    subgrid_corr_dt0 = tr_f[:, TR_HCP] * tr_f[:, TR_RHO] / (tr_f[:, TR_HCD] * ((2/dx[IX])**2 + (2/dx[IZ])**2))
+                    subgrid_corr_T = old_tr_f[:, TR_TMP] - (old_tr_f[:, TR_TMP] - tr_f[:, TR_TMP]) * np.exp(-d * tstep / subgrid_corr_dt0)
+                    # compensation at eulerian nodes
+                    dT_subgrid_diff = subgrid_corr_T - tr_f[:, TR_TMP]
+                    dT_subgrid_diff_back = np.zeros_like(dT_subgrid_diff)
+                    pylamp_trac.trac2grid(tr_x[idx_tracs_inside,:], dT_subgrid_diff[idx_tracs_inside, None], mesh, grid, [f_sgc], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+                    pylamp_trac.grid2trac(tr_x[idx_tracs_inside,:], dT_subgrid_diff_back[idx_tracs_inside,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                    tr_f[:, TR_TMP] = subgrid_corr_T - dT_subgrid_diff_back
+            
+            # end of heat diffusion 
 
         if do_advect:
             pprint("Tracer advection")
@@ -514,26 +528,42 @@ if __name__ == "__main__":
             if bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_FLOWTHRU:
                 vels[IX][:,-1] = vels[IX][:,-2]
 
-
-            MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
-
             trac_vel = np.zeros((ntrac, DIM))
             l_tr_x = np.zeros_like(tr_x)
             l_trac_vel = np.zeros((ntrac, DIM))
-            ls_trac_vel, ls_tr_x = pylamp_trac.RK(tr_x[IPROC::NPROC], [newgridz, newgridx], vels, nx, tstep)
-            l_tr_x[IPROC::NPROC,:] = ls_tr_x[:,:]
-            l_trac_vel[IPROC::NPROC,:] = ls_trac_vel[:,:]
+            ls_trac_vel, ls_tr_x = pylamp_trac.RK(tr_x[idx_tracs_inside,:][IPROC::NPROC,:], [newgridz, newgridx], vels, nx, tstep)
+            l_tr_x[idx_tracs_inside,:][IPROC::NPROC,:] = ls_tr_x[:,:]
+            l_trac_vel[idx_tracs_inside,:][IPROC::NPROC,:] = ls_trac_vel[:,:]
 
             MPICOMM.Allreduce([l_tr_x, MPI.DOUBLE], [tr_x, MPI.DOUBLE], op=MPI.SUM)
             MPICOMM.Allreduce([l_trac_vel, MPI.DOUBLE], [trac_vel, MPI.DOUBLE], op=MPI.SUM)
 
             # do not allow tracers to advect outside the domain
             for d in range(DIM):
-                if bcstokes[d*0 + IX] & pylamp_stokes.BC_TYPE_CYCLIC :
+                if bcstokes[d*0 + IX] & pylamp_stokes.BC_TYPE_CYCLIC:
                     tr_x[tr_x[:,d] <= 0, d] += L[d]
                     tr_x[tr_x[:,d] >= L[d], d] -= L[d]
-                tr_x[tr_x[:,d] <= 0, d] = EPS
-                tr_x[tr_x[:,d] >= L[d], d] = L[d]-EPS
+                else:
+                    idx = tr_x[:,d] <= 0
+                    if tracs_fence_enabled:
+                        tr_x[idx, d] = EPS
+                    else:
+                        tr_f[idx, TR__ID] = -1
+                    idx = tr_x[:,d] >= L[d]
+                    if tracs_fence_enabled:
+                        tr_x[idx, d] = L[d]-EPS
+                    else:
+                        tr_f[idx, TR__ID] = -1
+            if tracs_fence_enabled:
+                # assume all tracers are inside
+                idx_tracs_inside[:] = True
+            else:
+                idx_tracs_inside = tr_f[:, TR__ID] >= 0
+
+            ### TODO:
+            # fill in the gaps where there are no tracers, or num of
+            # tracers per element is too low,
+            # then do grid2trac for those
 
 
         if IPROC == 0 and output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):

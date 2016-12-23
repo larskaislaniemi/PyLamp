@@ -39,7 +39,7 @@ TR_MAT = 8      # material numbering
 TR_ACE = 9      # activation energy
 TR_ET0 = 10     # inherent viscosity
 TR_IHT = 11     # internal heating, W/m3
-TR__ID = 12     # special one, unique ID
+TR__ID = 12     # special one, unique ID, if <0, outside domain
 
 
 # Numerical constants
