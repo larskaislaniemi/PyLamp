@@ -1,9 +1,12 @@
 #!/usr/bin/python3 
+import sys
+
+sys.path.append('/usr/lib/python3.5/site-packages')
+
 import numpy as np
 from pylamp_const import *
 #from bokeh.plotting import figure, output_file, show, save
 import vtk
-import sys
 #import gr
 from scipy.interpolate import griddata
 import os
@@ -101,9 +104,13 @@ if __name__ == "__main__":
                 print(tracsdatafile)
             tracsdata = np.load(tracsdatafile)
 
+            tr_v_present = True
             tr_x = tracsdata["tr_x"]
             tr_f = tracsdata["tr_f"]
-            tr_v = tracsdata["tr_v"]
+            try:
+                tr_v = tracsdata["tr_v"]
+            except KeyError:
+                tr_v_present = False
 
             N = tr_f[:, TR_TMP].shape[0]
 
@@ -136,16 +143,17 @@ if __name__ == "__main__":
                 polydata.Modified()
 
             # special field, velocity
-            trac_array = vtk.vtkDoubleArray()
-            trac_array.SetNumberOfComponents(3)
-            trac_array.SetNumberOfTuples(N)
+            if tr_v_present:
+                trac_array = vtk.vtkDoubleArray()
+                trac_array.SetNumberOfComponents(3)
+                trac_array.SetNumberOfTuples(N)
 
-            for i in range(N):
-                trac_array.SetTuple3(i, tr_v[i, IX], tr_v[i, IZ], tr_v[i, IZ]*0.0)
+                for i in range(N):
+                    trac_array.SetTuple3(i, tr_v[i, IX], tr_v[i, IZ], tr_v[i, IZ]*0.0)
 
-            trac_array.SetName("velo")
-            polydata.GetPointData().AddArray(trac_array)
-            polydata.Modified()
+                trac_array.SetName("velo")
+                polydata.GetPointData().AddArray(trac_array)
+                polydata.Modified()
 
 
             if vtk.VTK_MAJOR_VERSION <= 5:
@@ -209,6 +217,11 @@ if __name__ == "__main__":
             vtkgrid.SetZCoordinates(arrCoords[IY])
 
             for ifield in range(len(grfields)):
+                try:
+                    dummy = griddata[grfields[ifield]]
+                except:
+                    # variable does not exist in output
+                    continue
                 grid_array = vtk.vtkDoubleArray()
                 grid_array.SetNumberOfComponents(1)
                 grid_array.SetNumberOfTuples(N)
