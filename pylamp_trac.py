@@ -184,7 +184,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
     if method & INTERP_METHOD_GRIDDATA:
         if DIM != 2:
             print("!!! NOT IMPLEMENTED")
-        
+        gt
         gridval = griddata(tr_x, tr_f, (mesh[0], mesh[1]), 'nearest')
 
         for d in range(ntracfield):
