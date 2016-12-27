@@ -31,13 +31,12 @@ if __name__ == "__main__":
     IPROC = MPICOMM.Get_rank()
     NPROC = MPICOMM.Get_size()
 
-    pprint("=== Running on", NPROC, "processors")
+    pprint("=== Running on", NPROC, "processors ===")
 
     # Configurable options
     nx    =   [33+1,45+1]         # use order z,x,y
     L     =   [660e3, 1800e3] 
     tracdens = 40     # how many tracers per element on average
-    tracdens_inj = 37 # num of tracers in element after injection
     tracdens_min = 30 # minimum number of tracers per element
     tracs_fence_enabled = False # stop tracers at the boundary
                                 # if they are about to flow out
@@ -218,7 +217,7 @@ if __name__ == "__main__":
     bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
     bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
     bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
-    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
 
     bcheat = [[]] * 4
     bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
@@ -553,9 +552,12 @@ if __name__ == "__main__":
 
             if not tracs_fence_enabled:
                 # some tracers might have advected outside the domain
-                idx_tracs_outside = np.where(tr_f[:,TR__ID] < 0)[0]
-                tr_x = np.delete(tr_x, idx_tracs_outside, axis=0)
-                tr_f = np.delete(tr_f, idx_tracs_outside, axis=0)
+                idx_tracs_outside = tr_f[:,TR__ID] < 0
+                dntrac = np.sum(idx_tracs_outside)
+                pprint("Removing", dntrac, "tracers")
+                tr_x = np.delete(tr_x, np.where(idx_tracs_outside)[0], axis=0)
+                tr_f = np.delete(tr_f, np.where(idx_tracs_outside)[0], axis=0)
+                ntrac = ntrac - dntrac
 
             ### TODO:
             # fill in the gaps where there are no tracers, or num of
@@ -564,17 +566,51 @@ if __name__ == "__main__":
 
             ielem = np.floor((nx[IZ]-1) * tr_x[:,IZ] / L[IZ]).astype(int)
             jelem = np.floor((nx[IX]-1) * tr_x[:,IX] / L[IX]).astype(int)
-            kelem = ielem * nx[IX] + jelem
-            ntrac_per_elem = np.bincount(kelem)
-            kelems_missing_tracs = np.where(ntrac_per_elem < tracdens_min)[0]
-            ielems_missing_tracs = np.floor(kelems_missing_tracs / nx[IX])
-            jelems_missing_tracs = kelems_missing_tracs % ielems_missing_tracs
 
-            print("Following elems have too few tracs:")
-            print(ielems_missing_tracs)
-            print(jelems_missing_tracs)
-            print(ntrac_per_elem[kelems_missing_tracs])
+            kelem = ielem * (nx[IX]-1) + jelem
+            kelem = np.append(kelem, np.arange(np.prod(np.array(nx)-1))) # to make sure every element is accounted for at least once in the bincount()
+            ntrac_per_elem = np.bincount(kelem)-1
+            idx_toofewtracs = ntrac_per_elem < tracdens_min
+            
+            prev_tr_f = np.copy(tr_f) # used later for output writing
+            prev_tr_x = np.copy(tr_x) # used later for output writing
 
+            if np.sum(idx_toofewtracs) == 0:
+                # nothing to do here
+                pprint("Injecting zero tracers")
+            else:
+                kelems_missing_tracs = np.where(idx_toofewtracs)[0]
+                ielems_missing_tracs = np.floor(kelems_missing_tracs / (nx[IX]-1)).astype(int)
+                jelems_missing_tracs = (kelems_missing_tracs % (nx[IX]-1)).astype(int)
+
+                n_missing_tracs = tracdens - ntrac_per_elem[idx_toofewtracs]
+                dntrac = np.sum(n_missing_tracs)
+                pprint("Injecting", dntrac, "new tracers")
+                jelem_bnds = [grid[IX][jelems_missing_tracs], grid[IX][jelems_missing_tracs+1]] 
+                ielem_bnds = [grid[IZ][ielems_missing_tracs], grid[IZ][ielems_missing_tracs+1]] 
+
+                prev_tr_f = np.copy(tr_f)
+                prev_tr_x = np.copy(tr_x)
+
+                for i in range(n_missing_tracs.size):
+                    tr_x_tmp = np.random.rand(n_missing_tracs[i], DIM)
+                    tr_x_tmp[:,IX] = tr_x_tmp[:,IX] * (jelem_bnds[1][i] - jelem_bnds[0][i]) + jelem_bnds[0][i]
+                    tr_x_tmp[:,IZ] = tr_x_tmp[:,IZ] * (ielem_bnds[1][i] - ielem_bnds[0][i]) + ielem_bnds[0][i]
+                    tr_f_tmp = np.zeros((n_missing_tracs[i], NFTRAC))
+                    maxid_current = np.max(tr_f[:,TR__ID])
+                    tr_f_tmp[:,TR__ID] = np.arange(maxid_current, maxid_current + n_missing_tracs[i])
+
+                    for itracf in range(NFTRAC):
+                        # the new tracers will get values for the tracer functions
+                        # from the existing tracers in the element (simple average)
+                        if itracf != TR__ID:
+                            idx_tracs_in_elem = (ielem == ielems_missing_tracs[i]) & (jelem == jelems_missing_tracs[i])
+                            tr_f_tmp[:,itracf] = np.sum(prev_tr_f[idx_tracs_in_elem,itracf]) / np.sum(idx_tracs_in_elem)
+
+                    tr_f = np.append(tr_f, tr_f_tmp, axis=0)
+                    tr_x = np.append(tr_x, tr_x_tmp, axis=0)
+                    ntrac = ntrac + n_missing_tracs[i]
+                    
 
 
         if IPROC == 0 and output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
@@ -587,10 +623,10 @@ if __name__ == "__main__":
                     np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
                 else:
                     np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newvel[IX]*0.0, tstep=it, time=totaltime)
-                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
             else:
                 np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
-                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tstep=it, time=totaltime)
 
 
     if do_profiling:
