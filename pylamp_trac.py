@@ -184,7 +184,6 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
     if method & INTERP_METHOD_GRIDDATA:
         if DIM != 2:
             print("!!! NOT IMPLEMENTED")
-        gt
         gridval = griddata(tr_x, tr_f, (mesh[0], mesh[1]), 'nearest')
 
         for d in range(ntracfield):
@@ -213,7 +212,7 @@ def trac2grid(tr_x, tr_f, mesh, grid, gridfield, nx, distweight=None, avgscheme=
                 addednodesleft[d] += 1
             while np.max(tr_x[:,d]) > grid[d][-1]:
                 gridmodified = True
-                grid[d] = npconcatenate([np.array(grid[d]), [np.array([grid[d][-1] + (grid[d][-1]-grid[d][-2])])]])
+                grid[d] = np.concatenate([np.array(grid[d]), np.array([grid[d][-1] + (grid[d][-1]-grid[d][-2])])])
                 nx[d] += 1
                 addednodesright[d] += 1
 

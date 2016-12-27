@@ -38,7 +38,7 @@ if __name__ == "__main__":
     L     =   [660e3, 1800e3] 
     tracdens = 40     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
-    tracs_fence_enabled = False # stop tracers at the boundary
+    tracs_fence_enabled = True # stop tracers at the boundary
                                 # if they are about to flow out
     
     do_stokes = True
@@ -216,8 +216,8 @@ if __name__ == "__main__":
     bcstokes = [[]] * 4
     bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
     bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
-    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
 
     bcheat = [[]] * 4
     bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
@@ -540,24 +540,23 @@ if __name__ == "__main__":
                     tr_x[tr_x[:,d] >= L[d], d] -= L[d]
                 else:
                     idx = tr_x[:,d] <= 0
-                    if tracs_fence_enabled:
+                    if tracs_fence_enabled and not (bcstokes[DIM*0 + d] & pylamp_stokes.BC_TYPE_FLOWTHRU):
                         tr_x[idx, d] = EPS
                     else:
                         tr_f[idx, TR__ID] = -1
                     idx = tr_x[:,d] >= L[d]
-                    if tracs_fence_enabled:
+                    if tracs_fence_enabled and not (bcstokes[DIM*1 + d] & pylamp_stokes.BC_TYPE_FLOWTHRU):
                         tr_x[idx, d] = L[d]-EPS
                     else:
                         tr_f[idx, TR__ID] = -1
 
-            if not tracs_fence_enabled:
-                # some tracers might have advected outside the domain
-                idx_tracs_outside = tr_f[:,TR__ID] < 0
-                dntrac = np.sum(idx_tracs_outside)
-                pprint("Removing", dntrac, "tracers")
-                tr_x = np.delete(tr_x, np.where(idx_tracs_outside)[0], axis=0)
-                tr_f = np.delete(tr_f, np.where(idx_tracs_outside)[0], axis=0)
-                ntrac = ntrac - dntrac
+            # delete tracers that have advected outside the domain
+            idx_tracs_outside = tr_f[:,TR__ID] < 0
+            dntrac = np.sum(idx_tracs_outside)
+            pprint("Removing", dntrac, "tracers")
+            tr_x = np.delete(tr_x, np.where(idx_tracs_outside)[0], axis=0)
+            tr_f = np.delete(tr_f, np.where(idx_tracs_outside)[0], axis=0)
+            ntrac = ntrac - dntrac
 
             ### TODO:
             # fill in the gaps where there are no tracers, or num of

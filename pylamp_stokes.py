@@ -519,13 +519,38 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
 
     
     # one pressure point with absolute pressure value
-    i = 1
-    j = 1
+    # define at in-/outflow boundary if one exists,
+    # otherwise at i=3,j=2
+
+    bc_alldirichlet = True
+    flowbnd_wall = 0
+    flowbnd_dir = 0
+    for idir in range(DIM):
+        for iwall in [0,1]:
+            if bc[DIM*iwall + idir] & BC_TYPE_FLOWTHRU:
+                bc_alldirichlet = False
+                flowbnd_wall = iwall
+                flowbnd_dir = idir
+
+    if bc_alldirichlet:
+        i = 3
+        j = 2
+    else:
+        if flowbnd_wall == 0 and flowbnd_dir == IX:
+            j = 0
+            i = int(nx[IZ]/2)
+        elif flowbnd_wall == 1 and flowbnd_dir == IX:
+            j = nx[IX]-1
+            i = int(nx[IZ]/2)
+        else:
+            raise Exception("flow bnd condition in IZ dir no implemented")
     mat_row = gidx([i, j], nx, DIM) + IP
     A[mat_row, :] = 0
-    A[mat_row, gidx([i, j  ], nx, DIM) + IP] = Kcont
+    A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
     lc[mat_row] = 1
-    rhs[mat_row] = 0
+    rhs[mat_row] += 0
+
+
   
     if DEBUG > 5:
         print("================")
