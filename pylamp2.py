@@ -17,10 +17,10 @@ from pylamp_tool import *
 # Python code to solve the conservation of energy, momentum and mass
 # incompressible viscous flow
 #
-# – implicit (scipy direct solver)
-# – marker-in-cell for material and temperature advection
-# – linear (Newtonian) viscosity
-# – temperature dependent viscosity and density (buoyancy)
+# - implicit (scipy direct solver)
+# - marker-in-cell for material and temperature advection
+# - linear (Newtonian) viscosity
+# - temperature dependent viscosity and density (buoyancy)
 #
 #
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     Tref = 1623
     
     force_trac2grid_T = False       # force tracer to grid interpolation even in the case when there is no advection
-    max_it = 1e10
+    max_it = 100
     max_time = SECINMYR * 5000
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
     do_profiling = False
 
-    choose_model = 1
+    choose_model = 2
 
 
     # Profiling
@@ -112,6 +112,13 @@ if __name__ == "__main__":
 
     f_sgc  =   np.zeros(nx)    # subgrid diffusion correction term
 
+    # Containers for BCs
+    bcstokes = [[]] * 4
+    bcstokesvals = [None] * 4
+    bcheat = [[]] * 4
+    bcheatvals = [[]] * 4
+
+
     # Tracers
     ntrac = np.prod(nx)*tracdens
 
@@ -130,6 +137,7 @@ if __name__ == "__main__":
     ## Some material values and initial values
 
     if choose_model == 1 or choose_model == 11:
+        # TODO : copypaste bcs
         if choose_model == 1:
             zair = tr_x[:,IZ] < 0
             zcrust = tr_x[:,IZ] < 50e3
@@ -178,7 +186,17 @@ if __name__ == "__main__":
         tr_f[idxb, TR_MAT] = 2
         tr_f[idxb, TR_ET0] = 1e22
 
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcstokesvals[DIM*0 + IX] = np.empty(nx[IZ])
+        bcstokesvals[DIM*0 + IX][:] = np.nan
+        #bcstokesvals[DIM*0 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
+
     elif choose_model == 3:
+        # TODO : copypaste bcs
         # Rising block with free surface
         do_heatdiff = False
         tdep_rho = False
@@ -196,6 +214,7 @@ if __name__ == "__main__":
         tr_f[idxa, TR_ET0] = 1e18
 
     elif choose_model == 4:
+        # TODO: copypaste bcs
         tdep_eta = True
         tdep_rho = True
         tr_f[:, TR_RH0] = 3300
@@ -211,25 +230,41 @@ if __name__ == "__main__":
         tr_f[idx, TR_HCP] = 1000
         tr_f[idx, TR_MAT] = 0
 
+    elif choose_model == 5:
+        tdep_eta = False
+        tdep_rho = False
+        do_heatdiff = False
+        tr_f[:, TR_RH0] = 3300
+        tr_f[tr_x[:,IZ] < 200e3, TR_RH0] = 3350
+        tr_f[tr_x[:,IZ] < 150e3, TR_RH0] = 2900
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e20
+        
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
 
-    ## Boundary conditions
-    bcstokes = [[]] * 4
-    bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
-    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        #bcstokesvals[DIM*1 + IX] = np.empty(nx[IZ])
+        #bcstokesvals[DIM*1 + IX][:] = np.nan
+        #bcstokesvals[DIM*1 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
 
-    bcheat = [[]] * 4
-    bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-    bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-    bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
-    bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
 
-    bcheatvals = [[]] * 4
-    bcheatvals[DIM*0 + IZ] = 273
-    bcheatvals[DIM*1 + IZ] = 1623
-    bcheatvals[DIM*0 + IX] = 0
-    bcheatvals[DIM*1 + IX] = 0
+    ### Boundary conditions
+    #bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+    #bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+    #bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+    #bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+
+    #bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+    #bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+    #bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+    #bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+    #bcheatvals[DIM*0 + IZ] = 273
+    #bcheatvals[DIM*1 + IZ] = 1623
+    #bcheatvals[DIM*0 + IX] = 0
+    #bcheatvals[DIM*1 + IX] = 0
 
 
 
@@ -329,9 +364,9 @@ if __name__ == "__main__":
             pprint("Build stokes")
 
             if surface_stabilization == False or surfstab_tstep < 0:
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False, bcvals=bcstokesvals)
             else:
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=surfstab_tstep, surfstab_theta=surfstab_theta)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=surfstab_tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
 
             pprint("Solve stokes")
             # Solve it!
@@ -339,6 +374,8 @@ if __name__ == "__main__":
             x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
 
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
+
+            print("Min/max vel: ", SECINYR*np.min(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)), SECINYR*np.max(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)))
 
             tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
             tstep_stokes = min(tstep_stokes, tstep_adv_max)
@@ -367,7 +404,7 @@ if __name__ == "__main__":
             stabRedoDone = False
             while not stabRedoDone:
                 pprint ("Redo stokes with surface stabilization")
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
 
                 print ("Resolve stokes")
                 x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)

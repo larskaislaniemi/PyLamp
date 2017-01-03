@@ -17,7 +17,7 @@ import sys
 BC_TYPE_NOSLIP = 0
 BC_TYPE_FREESLIP = 1
 BC_TYPE_CYCLIC = 2
-BC_TYPE_FLOWTHRU = 4
+BC_TYPE_FLOWTHRU = 128
 
 def gidx(idxs, nx, dim):
     # Global index for the matrix in linear system of equations
@@ -101,7 +101,7 @@ def x2vp(x, nx):
     return (newvel, newpres)
 
 
-def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=None, surfstab_theta=0.5):
+def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=False, tstep=None, surfstab_theta=0.5):
     # Form the solution matrix for stokes/cont solving
     #
     # Currently can do only 2D
@@ -269,11 +269,26 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
     elif bc[DIM*0 + IX] & BC_TYPE_FLOWTHRU:
-        # dvx/dx = 0
-        A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = -Kcont
-        A[gidx([i, j], nx, DIM) + IX, gidx([i, j+1], nx, DIM) + IX] = Kcont
-        lc[gidx([i, j], nx, DIM) + IX] += 1
-        rhs[gidx([i, j], nx, DIM) + IX] = 0
+        # zero normal stress (dvx/dx=0) except where velocity predefined
+        if bcvals is not None and bcvals[DIM*0 + IX] is not None:
+            zerostressidx = np.isnan(bcvals[DIM*0 + IX]) # in these locations zero stress will be applied
+            definedvelidx = np.logical_not(zerostressidx)# in these the given velocity will be applied 
+            i_zs = i[zerostressidx[i]]
+            i_dv = i[definedvelidx[i]]
+            
+            A[gidx([i_zs, j], nx, DIM) + IX, gidx([i_zs, j], nx, DIM) + IX] = -Kcont
+            A[gidx([i_zs, j], nx, DIM) + IX, gidx([i_zs, j+1], nx, DIM) + IX] = Kcont
+            lc[gidx([i_zs, j], nx, DIM) + IX] += 1
+            rhs[gidx([i_zs, j], nx, DIM) + IX] = 0
+
+            A[gidx([i_dv, j], nx, DIM) + IX, gidx([i_dv, j], nx, DIM) + IX] = Kcont
+            lc[gidx([i_dv, j], nx, DIM) + IX] += 1
+            rhs[gidx([i_dv, j], nx, DIM) + IX] = Kcont * (bcvals[DIM*0 + IX])[i_dv]
+        else:
+            A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = -Kcont
+            A[gidx([i, j], nx, DIM) + IX, gidx([i, j+1], nx, DIM) + IX] = Kcont
+            lc[gidx([i, j], nx, DIM) + IX] += 1
+            rhs[gidx([i, j], nx, DIM) + IX] = 0
     else:
         # vx = 0
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
@@ -314,11 +329,26 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
     elif bc[DIM*1 + IX] & BC_TYPE_FLOWTHRU:
-        # dvx/dx = 0
-        A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
-        A[gidx([i, j], nx, DIM) + IX, gidx([i, j-1], nx, DIM) + IX] = -Kcont
-        lc[gidx([i, j], nx, DIM) + IX] += 1
-        rhs[gidx([i, j], nx, DIM) + IX] = 0
+        # zero normal stress (dvx/dx=0) except where velocity predefined
+        if bcvals is not None and bcvals[DIM*1 + IX] is not None:
+            zerostressidx = np.isnan(bcvals[DIM*1 + IX]) # in these locations zero stress will be applied
+            definedvelidx = np.logical_not(zerostressidx)# in these the given velocity will be applied 
+            i_zs = i[zerostressidx[i]]
+            i_dv = i[definedvelidx[i]]
+
+            A[gidx([i_zs, j], nx, DIM) + IX, gidx([i_zs, j-1], nx, DIM) + IX] = -Kcont
+            A[gidx([i_zs, j], nx, DIM) + IX, gidx([i_zs, j], nx, DIM) + IX] = Kcont
+            lc[gidx([i_zs, j], nx, DIM) + IX] += 1
+            rhs[gidx([i_zs, j], nx, DIM) + IX] = 0
+
+            A[gidx([i_dv, j], nx, DIM) + IX, gidx([i_dv, j], nx, DIM) + IX] = Kcont
+            lc[gidx([i_dv, j], nx, DIM) + IX] += 1
+            rhs[gidx([i_dv, j], nx, DIM) + IX] = Kcont * (bcvals[DIM*1 + IX])[i_dv]
+        else:
+            A[gidx([i, j], nx, DIM) + IX, gidx([i, j-1], nx, DIM) + IX] = -Kcont
+            A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
+            lc[gidx([i, j], nx, DIM) + IX] += 1
+            rhs[gidx([i, j], nx, DIM) + IX] = 0
     else:
         # vx = 0
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
@@ -544,11 +574,12 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, surfstab=False, tstep=
             i = int(nx[IZ]/2)
         else:
             raise Exception("flow bnd condition in IZ dir no implemented")
-    mat_row = gidx([i, j], nx, DIM) + IP
-    A[mat_row, :] = 0
-    A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
-    lc[mat_row] = 1
-    rhs[mat_row] += 0
+    if bc_alldirichlet:
+        mat_row = gidx([i, j], nx, DIM) + IP
+        #A[mat_row, :] = 0
+        A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
+        lc[mat_row] = 1
+        rhs[mat_row] += 0
 
 
   
