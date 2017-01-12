@@ -577,6 +577,7 @@ if __name__ == "__main__":
             pprint("Removing", dntrac, "tracers")
             tr_x = np.delete(tr_x, np.where(idx_tracs_outside)[0], axis=0)
             tr_f = np.delete(tr_f, np.where(idx_tracs_outside)[0], axis=0)
+            trac_vel = np.delete(trac_vel, np.where(idx_tracs_outside)[0], axis=0)
             ntrac = ntrac - dntrac
 
             ### TODO:
