@@ -34,10 +34,10 @@ if __name__ == "__main__":
     pprint("=== Running on", NPROC, "processors ===")
 
     # Configurable options
-    nx    =   [33+1,45+1]         # use order z,x,y
-    L     =   [660e3, 1800e3] 
-    tracdens = 40     # how many tracers per element on average
-    tracdens_min = 30 # minimum number of tracers per element
+    nx    =   [200+1,40+1]         # use order z,x,y
+    L     =   [1, 0.2] 
+    tracdens = 45     # how many tracers per element on average
+    tracdens_min = 25 # minimum number of tracers per element
     tracs_fence_enabled = True # stop tracers at the boundary
                                 # if they are about to flow out
     
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
     do_profiling = False
 
-    choose_model = 1
+    choose_model = 5
 
 
     # Profiling
@@ -126,6 +126,10 @@ if __name__ == "__main__":
 
     tr_f[:, TR__ID] = np.arange(0, ntrac)
 
+    
+    bcstokes = [[]] * 4
+    bcheat = [[]] * 4
+    bcheatvals = [[]] * 4
     
     ## Some material values and initial values
 
@@ -211,21 +215,38 @@ if __name__ == "__main__":
         tr_f[idx, TR_HCP] = 1000
         tr_f[idx, TR_MAT] = 0
 
+    elif choose_model == 5:
+        # prob dims:
+        # w: 0.1 m
+        # h: 1.0 m
+        # ball r: 0.015
+        # midp: x: 0.05
+        #       y: 0.8
+        md_bx = 0.1
+        md_by = 0.2
+        md_br = 0.01
+        tdep_eta = False
+        tdep_rho = False
+        do_heatdiff = False
+        tr_f[:, TR_RH0] = 1420
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e2
+        idx = (tr_x[:, IX] - md_bx)**2 + (tr_x[:, IZ] - md_by)**2 < md_br**2
+        tr_f[idx, TR_RH0] = 1470
+        tr_f[idx, TR_MAT] = 2
+        tr_f[idx, TR_ET0] = 1e12
+
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
 
     ## Boundary conditions
-    bcstokes = [[]] * 4
-    bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
-    bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
-
-    bcheat = [[]] * 4
     bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
     bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
     bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
     bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
 
-    bcheatvals = [[]] * 4
     bcheatvals[DIM*0 + IZ] = 273
     bcheatvals[DIM*1 + IZ] = 1623
     bcheatvals[DIM*0 + IX] = 0
