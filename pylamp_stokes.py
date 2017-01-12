@@ -574,7 +574,8 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
             i = int(nx[IZ]/2)
         else:
             raise Exception("flow bnd condition in IZ dir no implemented")
-    if bc_alldirichlet:
+
+    if 1 > 0 or bc_alldirichlet:
         mat_row = gidx([i, j], nx, DIM) + IP
         #A[mat_row, :] = 0
         A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont

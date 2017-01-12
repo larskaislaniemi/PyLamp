@@ -110,6 +110,7 @@ if __name__ == "__main__":
             try:
                 tr_v = tracsdata["tr_v"]
             except KeyError:
+                print("Warning! Tracer velocity field not present")
                 tr_v_present = False
 
             N = tr_f[:, TR_TMP].shape[0]

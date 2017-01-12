@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-from mpi4py import MPI
 from pylamp_const import *
 import pylamp_stokes 
 import pylamp_trac
@@ -26,16 +25,31 @@ from pylamp_tool import *
 
 #### MAIN ####
 if __name__ == "__main__":
+    ###################################
+    ### SELECT MODEL SET-UP VERSION ###
+    ###################################
+    choose_model = 'rifting'    
+    # possible values:
+    #  - thick crust
+    #  - falling block
 
-    MPICOMM = MPI.COMM_WORLD
-    IPROC = MPICOMM.Get_rank()
-    NPROC = MPICOMM.Get_size()
 
-    pprint("=== Running on", NPROC, "processors ===")
+    #######################################
+    ### GENERAL SETTINGS AND GRID SETUP ###
+    #######################################
 
-    # Configurable options
-    nx    =   [33+1,45+1]         # use order z,x,y
-    L     =   [660e3, 1800e3] 
+    if choose_model == 'thick crust':
+        nx    =   [33+1,45+1]         # use order z,x,y
+        L     =   [660e3, 1800e3] 
+    elif choose_model == 'rifting':
+        nx    =   [33+1,45+1]         # use order z,x,y
+        L     =   [330e3, 900e3] 
+    elif choose_model == 'falling block':
+        nx    =   [33+1,45+1]         # use order z,x,y
+        L     =   [660e3, 1800e3] 
+    else:
+        raise Exception("Invalid model name '" + choose_model + "'")
+
     tracdens = 40     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
     tracs_fence_enabled = True # stop tracers at the boundary
@@ -44,7 +58,7 @@ if __name__ == "__main__":
     do_stokes = True
     do_advect = True
     do_heatdiff = True
-    do_subgrid_heatdiff = True
+    do_subgrid_heatdiff = False
 
     tstep_adv_max = 50e9 * SECINYR
     tstep_adv_min = 50e-9 * SECINYR
@@ -68,14 +82,11 @@ if __name__ == "__main__":
     max_time = SECINMYR * 5000
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
-    surface_stabilization = False   # use if "sticky air" free surface present
+    surface_stabilization = True   # use if "sticky air" free surface present
     surfstab_theta = 0.5
     surfstab_tstep = -1 #1*SECINKYR            # if negative, a dynamic tstep is used 
 
     do_profiling = False
-
-    choose_model = 2
-
 
     # Profiling
     if do_profiling:
@@ -122,11 +133,7 @@ if __name__ == "__main__":
     # Tracers
     ntrac = np.prod(nx)*tracdens
 
-    if IPROC == 0:
-        tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
-    else:
-        tr_x = np.zeros((ntrac, DIM))
-    MPICOMM.Bcast(tr_x, root=0)
+    tr_x = np.random.rand(ntrac, DIM)  # tracer coordinates
 
     tr_x = np.multiply(tr_x, L)
     tr_f = np.zeros((ntrac, NFTRAC))     # tracer functions (values)
@@ -134,19 +141,43 @@ if __name__ == "__main__":
     tr_f[:, TR__ID] = np.arange(0, ntrac)
 
     
-    ## Some material values and initial values
+    ###################################
+    ### SELECT MODEL SET-UP VERSION ###
+    ###################################
+    choose_model = 'rifting'    
+    # possible values:
+    #  - thick crust
+    #  - falling block
 
-    if choose_model == 1 or choose_model == 11:
-        # TODO : copypaste bcs
-        if choose_model == 1:
-            zair = tr_x[:,IZ] < 0
-            zcrust = tr_x[:,IZ] < 50e3
-        else:
-            zair = tr_x[:,IZ] < 50e3
-            extraidx = (tr_x[:, IZ] > 100e3) & (tr_x[:, IZ] < 150e3) & (tr_x[:, IX] < 600e3) & (tr_x[:, IX] > 200e3)
-            zcrust = (tr_x[:,IZ] < 100e3) | extraidx
-            tstep_modifier = 0.33
-        # Stagnant lid?
+
+    ###############################
+    ### DEFINE MODEL PARAMETERS ###
+    ###############################
+
+    if choose_model == 'thick crust':
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+
+        tdep_rho = True
+        tdep_eta = True
+
+        etamin = 1e17
+        etamax = 1e23
+        Tref = 1623
+        
+        max_it = 100000
+        max_time = SECINMYR * 5000
+        surface_stabilization = True
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
+
+        zair = tr_x[:,IZ] < 50e3
+        extraidx = (tr_x[:, IZ] > 100e3) & (tr_x[:, IZ] < 150e3) & (tr_x[:, IX] < 600e3) & (tr_x[:, IX] > 200e3)
+        zcrust = (tr_x[:,IZ] < 100e3) | extraidx
+        tstep_modifier = 0.33
+
         tr_f[:, TR_RH0] = 3300
         tr_f[:, TR_ALP] = 3.5e-5
         tr_f[:, TR_MAT] = 2
@@ -173,7 +204,24 @@ if __name__ == "__main__":
         tr_f[zair, TR_IHT] = 0.0
         tr_f[zair, TR_HCP] = 1000
 
-    elif choose_model == 2:
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+        
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 273
+        bcheatvals[DIM*1 + IZ] = 1623
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
+        bc_internal_type = 1
+
+    elif choose_model == 'falling block':
         # Falling block
         do_heatdiff = False
         tdep_rho = False
@@ -195,76 +243,79 @@ if __name__ == "__main__":
         bcstokesvals[DIM*0 + IX][:] = np.nan
         #bcstokesvals[DIM*0 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
 
-    elif choose_model == 3:
-        # TODO : copypaste bcs
-        # Rising block with free surface
+    if choose_model == 'rifting':
+
+        do_stokes = True
+        do_advect = True
         do_heatdiff = False
+
         tdep_rho = False
         tdep_eta = False
-        tr_f[:, TR_RH0] = 3300
-        tr_f[:, TR_MAT] = 1
-        tr_f[:, TR_ET0] = 1e20
-        idxb = (tr_x[:, IZ] > 400e3) & (tr_x[:, IZ] < 500e3) & (tr_x[:, IX] > 280e3) & (tr_x[:, IX] < 380e3)
-        tr_f[idxb, TR_RH0] = 3280
-        tr_f[idxb, TR_MAT] = 2
-        tr_f[idxb, TR_ET0] = 1e22
-        idxa = (tr_x[:, IZ] < 50e3)
-        tr_f[idxa, TR_RH0] = 1000
-        tr_f[idxa, TR_MAT] = 0
-        tr_f[idxa, TR_ET0] = 1e18
 
-    elif choose_model == 4:
-        # TODO: copypaste bcs
-        tdep_eta = True
-        tdep_rho = True
-        tr_f[:, TR_RH0] = 3300
-        tr_f[:, TR_ALP] = 3.5e-5
-        tr_f[:, TR_HCD] = 4
-        tr_f[:, TR_HCP] = 1250
-        tr_f[:, TR_TMP] = 273
-        tr_f[:, TR_MAT] = 1
-        idx = (tr_x[:, IZ] < 300e3) & (tr_x[:, IZ] > 200e3) & (tr_x[:, IX] > 200e3) & (tr_x[:, IX] < 600e3)
-        tr_f[idx, TR_TMP] = 1623
-        tr_f[idx, TR_HCD] = 15
-        tr_f[idx, TR_RH0] = 2900
-        tr_f[idx, TR_HCP] = 1000
-        tr_f[idx, TR_MAT] = 0
-
-    elif choose_model == 5:
-        tdep_eta = False
-        tdep_rho = False
-        do_heatdiff = False
-        tr_f[:, TR_RH0] = 3300
-        tr_f[tr_x[:,IZ] < 200e3, TR_RH0] = 3350
-        tr_f[tr_x[:,IZ] < 150e3, TR_RH0] = 2900
-        tr_f[:, TR_MAT] = 1
-        tr_f[:, TR_ET0] = 1e20
+        etamin = 1e17
+        etamax = 1e24
+        Tref = 1623
         
-        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
-        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        max_it = 100000
+        max_time = SECINMYR * 5000
+        surface_stabilization = True
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
 
-        #bcstokesvals[DIM*1 + IX] = np.empty(nx[IZ])
-        #bcstokesvals[DIM*1 + IX][:] = np.nan
-        #bcstokesvals[DIM*1 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
+        h_crust = 30e3
+        h_lmantle = 60e3
+        h_litho = h_crust + h_lmantle
+        h_air = 45e3
 
+        zair = tr_x[:,IZ] <= h_air
+        zcrust = (tr_x[:,IZ] <= h_air + h_crust) & (tr_x[:,IZ] > h_air)
+        zlmantle = (tr_x[:, IZ] <= h_air + h_litho) & (tr_x[:,IZ] > h_air + h_crust)
+        zseed = (tr_x[:,IZ] < h_air + 0.67*h_crust) & (tr_x[:,IZ] > h_air + 0.33*h_crust)
+        xseed = (tr_x[:,IX] > 0.5*L[IX] - 15e3) & (tr_x[:,IX] < 0.5*L[IX] + 15e3)
+        zxseed = zseed & xseed
 
-    ### Boundary conditions
-    #bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    #bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
-    #bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
-    #bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        tstep_modifier = 0.33
 
-    #bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-    #bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
-    #bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
-    #bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_MAT] = 2
+        tr_f[:, TR_ET0] = 1e20
+        tr_f[zcrust, TR_RH0] = 2900
+        tr_f[zcrust, TR_MAT] = 1
+        tr_f[zcrust, TR_ET0] = 1e22
+        tr_f[zair, TR_RH0] = 1000
+        tr_f[zair, TR_ET0] = 1e18
+        tr_f[zair, TR_MAT] = 0
+        tr_f[zlmantle, TR_RH0] = 3200
+        tr_f[zlmantle, TR_ET0] = 1e21
+        tr_f[zlmantle, TR_MAT] = 3
+        tr_f[zxseed, TR_RH0] = 2900
+        tr_f[zxseed, TR_ET0] = 1e20
+        tr_f[zxseed, TR_MAT] = 4
 
-    #bcheatvals[DIM*0 + IZ] = 273
-    #bcheatvals[DIM*1 + IZ] = 1623
-    #bcheatvals[DIM*0 + IX] = 0
-    #bcheatvals[DIM*1 + IX] = 0
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcstokesvals[DIM*0 + IX] = np.empty(nx[IZ])
+        # bcstokesvals[DIM*1 + IX][:] = np.nan  # every point is stress free
+        bcstokesvals[DIM*0 + IX][grid[IZ] < h_air] = 0.0
+        bcstokesvals[DIM*0 + IX][(grid[IZ] > h_air) & (grid[IZ] <= h_air + h_litho)] = -0.1 / SECINYR
+        bcstokesvals[DIM*0 + IX][grid[IZ] > h_air + h_litho] = (h_crust * 0.1 / SECINYR) / (L[IZ]-(h_air+h_litho))
+
+        bcstokesvals[DIM*1 + IX] = np.empty(nx[IZ])
+        # bcstokesvals[DIM*1 + IX][:] = np.nan  # every point is stress free
+        bcstokesvals[DIM*1 + IX][grid[IZ] <= h_air] = 0.0
+        bcstokesvals[DIM*1 + IX][(grid[IZ] > h_air) & (grid[IZ] <= h_air + h_litho)] = 0.1 / SECINYR
+        bcstokesvals[DIM*1 + IX][grid[IZ] > h_air + h_litho] = -(h_crust * 0.1 / SECINYR) / (L[IZ]-(h_air+h_litho))
+
+        output_numpy = True
+        output_stride = -1
+        output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
+        output_outdir = "out_rift"
+
+    else:
+        raise Exception("Invalid model name '" + choose_model + "'")
 
 
 
@@ -281,25 +332,31 @@ if __name__ == "__main__":
     if do_advect ^ do_stokes:
         raise Exception("Not implemented yet. Both do_advect and do_stokes need to be either disabled or enabled.")
 
+    
+
+    #############################################
+    ### CONFIG DONE, START THE MAIN TIME LOOP ###
+    #############################################
+
     it = 0
     totaltime = 0
     time_last_output = 0
     while ((it < max_it) and (totaltime < max_time)):
         it += 1
-        pprint(" --- Time step:", it, "---")
+        pprint(" ****** Time step:", it, "******")
 
-        #if bc_internal_type > 0:
+        if bc_internal_type > 0:
 
-        #    if bc_internal_type == 1:
-        #        # force material zero (water, air) to constant temperature
-        #        idxmat = tr_f[:, TR_MAT] == 0
-        #        tr_f[idxmat, TR_TMP] = 273
-        #    elif bc_internal_type == 2:
-        #        idx = (tr_x[:, IZ] < 300e3) & (tr_x[:, IZ] > 250e3) & (tr_x[:, IX] > 300e3) & (tr_x[:,IX] < 350e3)
-        #        tr_f[idx, TR_TMP] = 273
-        #    elif bc_internal_type == 3:
-        #        idxmat = tr_f[:, TR_MAT] <= 1
-        #        tr_f[idxmat, TR_TMP] = 273
+            if bc_internal_type == 1:
+                # force material zero (water, air) to constant temperature
+                idxmat = tr_f[:, TR_MAT] == 0
+                tr_f[idxmat, TR_TMP] = 273
+            elif bc_internal_type == 2:
+                idx = (tr_x[:, IZ] < 300e3) & (tr_x[:, IZ] > 250e3) & (tr_x[:, IX] > 300e3) & (tr_x[:,IX] < 350e3)
+                tr_f[idx, TR_TMP] = 273
+            elif bc_internal_type == 3:
+                idxmat = tr_f[:, TR_MAT] <= 1
+                tr_f[idxmat, TR_TMP] = 273
 
         pprint("Calculate physical properties")
         if tdep_rho:
@@ -375,7 +432,7 @@ if __name__ == "__main__":
 
             (newvel, newpres) = pylamp_stokes.x2vp(x, nx)
 
-            print("Min/max vel: ", SECINYR*np.min(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)), SECINYR*np.max(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)))
+            pprint("Min/max vel: ", SECINYR*np.min(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)), SECINYR*np.max(np.sqrt(newvel[IZ]**2 + newvel[IX]**2)), "m/yr")
 
             tstep_stokes = tstep_modifier * np.min(dx) / np.max(newvel)
             tstep_stokes = min(tstep_stokes, tstep_adv_max)
@@ -406,7 +463,7 @@ if __name__ == "__main__":
                 pprint ("Redo stokes with surface stabilization")
                 (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
 
-                print ("Resolve stokes")
+                pprint ("Resolve stokes")
                 x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
                 #(x, Aerr) = scipy.sparse.linalg.bicgstab(scipy.sparse.csc_matrix(A), rhs, x0=x)
                 #print ("  resolve error: ", Aerr)
@@ -452,23 +509,20 @@ if __name__ == "__main__":
             old_tr_f = np.array(tr_f, copy=True)
 
             l_interp_tracvals = np.zeros((tr_f.shape[0], 1))
-            g_interp_tracvals = np.zeros((tr_f.shape[0], 1))
 
             if it == 1:
                 # On first timestep interpolate absolute temperature values to tracers ...
                 # Also, assume that all tracers are within the domain at this point
                 pprint("grid2trac T")
-                pylamp_trac.grid2trac(tr_x[IPROC::NPROC], l_interp_tracvals[IPROC::NPROC], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
-                MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
-                tr_f[:, TR_TMP] = g_interp_tracvals[:, 0]
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                tr_f[:, TR_TMP] = l_interp_tracvals[:, 0]
             else:
                 # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
                 # (and exclude those that are outside the domain)
                 pprint("grid2trac dT")
                 newdT = newtemp - f_T
-                pylamp_trac.grid2trac(tr_x[IPROC::NPROC], l_interp_tracvals[IPROC::NPROC], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
-                MPICOMM.Allreduce([l_interp_tracvals, MPI.DOUBLE], [g_interp_tracvals, MPI.DOUBLE], op=MPI.SUM)
-                tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + g_interp_tracvals[:, 0]
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + l_interp_tracvals[:, 0]
 
                 #if bc_internal_type == 1:
                 #    # force material zero (water, air) to constant temperature
@@ -560,15 +614,7 @@ if __name__ == "__main__":
             if bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_FLOWTHRU:
                 vels[IX][:,-1] = vels[IX][:,-2]
 
-            trac_vel = np.zeros((ntrac, DIM))
-            l_tr_x = np.zeros_like(tr_x)
-            l_trac_vel = np.zeros((ntrac, DIM))
-            ls_trac_vel, ls_tr_x = pylamp_trac.RK(tr_x[IPROC::NPROC,:], [newgridz, newgridx], vels, nx, tstep)
-            l_tr_x[IPROC::NPROC,:] = ls_tr_x[:,:]
-            l_trac_vel[IPROC::NPROC,:] = ls_trac_vel[:,:]
-
-            MPICOMM.Allreduce([l_tr_x, MPI.DOUBLE], [tr_x, MPI.DOUBLE], op=MPI.SUM)
-            MPICOMM.Allreduce([l_trac_vel, MPI.DOUBLE], [trac_vel, MPI.DOUBLE], op=MPI.SUM)
+            trac_vel, tr_x = pylamp_trac.RK(tr_x[:,:], [newgridz, newgridx], vels, nx, tstep)
 
             # do not allow tracers to advect outside the domain
             for d in range(DIM):
@@ -593,6 +639,7 @@ if __name__ == "__main__":
             pprint("Removing", dntrac, "tracers")
             tr_x = np.delete(tr_x, np.where(idx_tracs_outside)[0], axis=0)
             tr_f = np.delete(tr_f, np.where(idx_tracs_outside)[0], axis=0)
+            trac_vel = np.delete(trac_vel, np.where(idx_tracs_outside)[0], axis=0)
             ntrac = ntrac - dntrac
 
             ### TODO:
@@ -649,7 +696,7 @@ if __name__ == "__main__":
                     
 
 
-        if IPROC == 0 and output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
+        if output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
             if output_stride > 0:
                 time_last_output = totaltime
             else:
