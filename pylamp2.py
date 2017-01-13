@@ -1010,12 +1010,12 @@ if __name__ == "__main__":
                 time_last_output = SECINMYR * output_stride_ma * float(int(totaltime/(SECINMYR*output_stride_ma)))
             if do_stokes:
                 if do_heatdiff:
-                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
+                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
                 else:
-                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newvel[IX]*0.0, tstep=it, time=totaltime)
+                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, eta=f_etas temp=newvel[IX]*0.0, tstep=it, time=totaltime)
                 np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
             else:
-                np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
                 np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tstep=it, time=totaltime)
 
 

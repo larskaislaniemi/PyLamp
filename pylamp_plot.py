@@ -26,6 +26,7 @@ PLOTTYPES = {
         'TR_RHO': 4,
         'TR_MRK': 5,
         'GR_TMP': 100,
+        'GR_ETA': 103,
         'GR_RHO': 104,
         'GR_PRS': 106
 }
@@ -182,15 +183,23 @@ if __name__ == "__main__":
         elif plottype == 'GR_TMP':
             temp = npzdata["temp"]
             plt.imshow(temp, interpolation="none", extent=[np.min(npzdata["gridx"]),np.max(npzdata["gridx"]),np.min(npzdata["gridz"]),np.max(npzdata["gridz"])])
-            plt.colorbar()
+            C = plt.colorbar()
+            C.set_label("Temperature (K)")
         elif plottype == 'GR_RHO':
             temp = npzdata["rho"]
             plt.imshow(temp, interpolation="none", extent=[np.min(npzdata["gridx"]),np.max(npzdata["gridx"]),np.min(npzdata["gridz"]),np.max(npzdata["gridz"])])
-            plt.colorbar()
+            C = plt.colorbar()
+            C.set_label("Density (kg/m3)")
         elif plottype == 'GR_PRS':
             temp = npzdata["pres"]
             plt.imshow(temp, interpolation="none")
-            plt.colorbar()
+            C = plt.colorbar()
+            C.set_label("Pressure (Pa)")
+        elif plottype == 'GR_ETA':
+            eta = np.log10(npzdata["eta"])
+            plt.imshow(temp, interpolation="none")
+            C = plt.colorbar()
+            C.set_label("Viscosity (log10 Pa s)") 
 
         plt.axes().set_aspect('equal', 'datalim')
         plt.show()
