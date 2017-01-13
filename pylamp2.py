@@ -10,6 +10,7 @@ import scipy.sparse.linalg
 from scipy.stats import gaussian_kde
 import cProfile, pstats, io
 from pylamp_tool import *
+import os
 
 ### PyLamp
 #
@@ -32,6 +33,10 @@ if __name__ == "__main__":
     # possible values:
     #  - thick crust
     #  - falling block
+    #  - rifting
+    #  - slab
+    #  - lavalamp
+    ###################################
 
 
     #######################################
@@ -39,16 +44,26 @@ if __name__ == "__main__":
     #######################################
 
     if choose_model == 'thick crust':
-        nx    =   [33+1,45+1]         # use order z,x,y
+        nx    =   [33,45]         # use order z,x
         L     =   [660e3, 1800e3] 
     elif choose_model == 'rifting':
-        nx    =   [33+1,45+1]         # use order z,x,y
+        nx    =   [33,45]         # use order z,x
         L     =   [330e3, 900e3] 
     elif choose_model == 'falling block':
-        nx    =   [33+1,45+1]         # use order z,x,y
+        nx    =   [33,33]         # use order z,x
+        L     =   [660e3, 660e3] 
+    elif choose_model == 'slab':
+        nx    =   [33,45]         # use order z,x
         L     =   [660e3, 1800e3] 
+    elif choose_model == 'lavalamp':
+        nx    =   [33,33]         # use order z,x
+        L     =   [660e3, 660e3] 
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
+    
+    #######################################
+
+    
 
     tracdens = 40     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
@@ -141,20 +156,83 @@ if __name__ == "__main__":
     tr_f[:, TR__ID] = np.arange(0, ntrac)
 
     
-    ###################################
-    ### SELECT MODEL SET-UP VERSION ###
-    ###################################
-    choose_model = 'rifting'    
-    # possible values:
-    #  - thick crust
-    #  - falling block
 
 
     ###############################
     ### DEFINE MODEL PARAMETERS ###
     ###############################
 
-    if choose_model == 'thick crust':
+    if choose_model == 'lavalamp':
+
+        do_stokes = True
+        do_advect = True       # Calculate Stokes and material advection?
+ 
+        do_heatdiff = True     # Calculate heat equation?
+
+        tdep_rho = True        # temperature dependent density?
+        tdep_eta = True        # temperature dependent viscosity?
+
+        etamin = 1e17          # global minimum viscosity
+        etamax = 1e24          # global maximum viscosity
+        
+        max_it = 100000               # maximum number of time steps to take
+        max_time = SECINMYR * 5000    # maximum model time to run
+        surface_stabilization = False # switch to True if an air/water layer is present
+
+        # Material parameters:
+
+        tr_f[:, TR_RH0] = 3300        # inherent density
+        tr_f[:, TR_ALP] = 3.5e-5      # coefficient of thermal expansion
+        tr_f[:, TR_MAT] = 1           # material number (for plotting)
+        tr_f[:, TR_ET0] = 1e19        # inherent viscosity
+        tr_f[:, TR_HCD] = 4.0         # heat conductivity
+        tr_f[:, TR_HCP] = 1250        # heat capacity
+        tr_f[:, TR_TMP] = 1573        # temperature (initial)
+        tr_f[:, TR_ACE] = 120e3       # activation energy
+        tr_f[:, TR_IHT] = 0.0         # internal heating rate
+
+        idx_blobs = tr_x[:, IZ] > 500e3
+        tr_f[idx_blobs, TR_RH0] = 3300
+        tr_f[idx_blobs, TR_ALP] = 3.5e-5
+        tr_f[idx_blobs, TR_MAT] = 2
+        tr_f[idx_blobs, TR_ET0] = 1e21
+        tr_f[idx_blobs, TR_HCD] = 4.0
+        tr_f[idx_blobs, TR_HCP] = 1250
+        tr_f[idx_blobs, TR_TMP] = 1623
+        tr_f[idx_blobs, TR_ACE] = 120e3
+        tr_f[idx_blobs, TR_IHT] = 0.0 
+        
+        # Boundary conditions for Stokes
+        # Possible values:
+        #   pylamp_stokes.BC_TYPE_FREESLIP
+        #   pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP   # Upper bnd
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP   # Lower bnd
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP   # Left bnd
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP   # Right bnd
+        
+        # Boundary condition types for heat equation
+        # Possible values:
+        #   pylamp_diff.BC_TYPE_FIXTEMP
+        #   pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP  # Upper
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP  # Lower
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW  # Left 
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW  # Right
+
+        # B.C. values for heat eq.
+        bcheatvals[DIM*0 + IZ] = 273    # Upper bnd, i.e. surface
+        bcheatvals[DIM*1 + IZ] = 1623   # Lower bnd
+        bcheatvals[DIM*0 + IX] = 0      # Left bnd
+        bcheatvals[DIM*1 + IX] = 0      # Right bnd
+
+        output_numpy = True       # Write output?
+        output_stride = -1        # Write output every nth time step
+        output_stride_ma = 0.5    # Write output every x million years,
+                                  # used if output_stride < 0
+        output_outdir = "lavalamp"  # To which folder output is written
+
+    elif choose_model == 'thick crust':
 
         do_stokes = True
         do_advect = True
@@ -243,7 +321,7 @@ if __name__ == "__main__":
         bcstokesvals[DIM*0 + IX][:] = np.nan
         #bcstokesvals[DIM*0 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
 
-    if choose_model == 'rifting':
+    elif choose_model == 'rifting':
 
         do_stokes = True
         do_advect = True
@@ -258,14 +336,14 @@ if __name__ == "__main__":
         
         max_it = 100000
         max_time = SECINMYR * 5000
-        surface_stabilization = True
+        surface_stabilization = False #True
         surfstab_theta = 0.5
         surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
 
         h_crust = 30e3
         h_lmantle = 60e3
         h_litho = h_crust + h_lmantle
-        h_air = 45e3
+        h_air = 0 #45e3
 
         zair = tr_x[:,IZ] <= h_air
         zcrust = (tr_x[:,IZ] <= h_air + h_crust) & (tr_x[:,IZ] > h_air)
@@ -314,9 +392,110 @@ if __name__ == "__main__":
         output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
         output_outdir = "out_rift"
 
+    elif choose_model == 'slab':
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+
+        tdep_rho = True
+        tdep_eta = True
+
+        etamin = 1e17
+        etamax = 1e24
+        Tref = 1623
+        
+        max_it = 100000
+        max_time = SECINMYR * 5000
+        surface_stabilization = True
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
+
+        h_litho = 100e3
+        h_air = 45e3
+
+        zair = tr_x[:,IZ] <= h_air
+        zlitho = (tr_x[:,IZ] <= h_air + h_litho) & (tr_x[:,IZ] > h_air)
+        zxslab = (tr_x[:,IZ] <= h_air + h_litho + 50e3) & (tr_x[:,IZ] > h_air) & (tr_x[:,IX] <= 0.5*L[IX]+h_litho/2) & (tr_x[:,IX] > 0.5*L[IX]-h_litho/2)
+        zxdetach = (tr_x[:,IX] < 0.5*L[IX]-h_litho/2) & (tr_x[:,IX] > 0.5*L[IX]-h_litho/2-20e3) & zlitho
+
+        tstep_modifier = 0.33
+
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_ALP] = 3.5e-5
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e20
+        tr_f[:, TR_HCD] = 4.0
+        tr_f[:, TR_HCP] = 1250
+        tr_f[:, TR_TMP] = 1623
+        tr_f[:, TR_ACE] = 120e3
+        tr_f[:, TR_IHT] = 0.02e-6 
+
+        tr_f[zair, TR_RH0] = 1000
+        tr_f[zair, TR_ALP] = 0
+        tr_f[zair, TR_MAT] = 0
+        tr_f[zair, TR_ET0] = 1e18
+        tr_f[zair, TR_HCD] = 4.0
+        tr_f[zair, TR_HCP] = 1250
+        tr_f[zair, TR_TMP] = 273
+        tr_f[zair, TR_ACE] = 0
+        tr_f[zair, TR_IHT] = 0.0
+
+        tr_f[zlitho, TR_RH0] = 3250
+        tr_f[zlitho, TR_ALP] = 3.5e-5
+        tr_f[zlitho, TR_MAT] = 2
+        tr_f[zlitho, TR_ET0] = 1e22
+        tr_f[zlitho, TR_HCD] = 4.0
+        tr_f[zlitho, TR_HCP] = 1250
+        tr_f[zlitho, TR_TMP] = 900
+        tr_f[zlitho, TR_ACE] = 120e3
+        tr_f[zlitho, TR_IHT] = 0.02e-6 
+
+        tr_f[zxslab, TR_RH0] = 3350
+        tr_f[zxslab, TR_ALP] = 3.5e-5
+        tr_f[zxslab, TR_MAT] = 2
+        tr_f[zxslab, TR_ET0] = 1e22
+        tr_f[zxslab, TR_HCD] = 4.0
+        tr_f[zxslab, TR_HCP] = 1250
+        tr_f[zxslab, TR_TMP] = 900
+        tr_f[zxslab, TR_ACE] = 120e3
+        tr_f[zxslab, TR_IHT] = 0.02e-6 
+
+        tr_f[zxdetach, TR_ET0] = 1e19
+        
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP 
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcstokesvals[DIM*1 + IX] = np.empty(nx[IZ])
+        bcstokesvals[DIM*1 + IX][:] = np.nan
+        #bcstokesvals[DIM*1 + IX][grid[IZ] <= h_air] = 0.0
+        #bcstokesvals[DIM*1 + IX][(grid[IZ] > h_air) & (grid[IZ] <= h_air + h_litho)] = -0.1 / SECINYR
+        #bcstokesvals[DIM*1 + IX][grid[IZ] > h_air + h_litho] = (h_litho * 0.1 / SECINYR) / (L[IZ]-(h_air+h_litho))
+
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 273
+        bcheatvals[DIM*1 + IZ] = 1623
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
+        bc_internal_type = 1
+
+        output_numpy = True
+        output_stride = 1
+        output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
+        output_outdir = "out_slab"
+
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
 
+    ###############################
+    ###############################
 
 
     ## Passive markers
@@ -697,6 +876,8 @@ if __name__ == "__main__":
 
 
         if output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
+            if not os.path.exists(output_outdir):
+                os.makedirs(output_outdir)
             if output_stride > 0:
                 time_last_output = totaltime
             else:
