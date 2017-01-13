@@ -103,7 +103,7 @@ if __name__ == "__main__":
     try:
         plottypenum = PLOTTYPES[plottype]
     except:
-        print("Invalid plot type:", plotname)
+        print("Invalid plot type:", plottype)
         sys.exit(3)
 
     if plottypenum < 100:

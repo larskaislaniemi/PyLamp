@@ -58,6 +58,9 @@ if __name__ == "__main__":
     elif choose_model == 'lavalamp':
         nx    =   [33,33]         # use order z,x
         L     =   [660e3, 660e3] 
+    elif choose_model == 'rifting with temp':
+        nx    =   [33,45]         # use order z,x
+        L     =   [330e3, 900e3] 
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
     
@@ -65,7 +68,7 @@ if __name__ == "__main__":
 
     
 
-    tracdens = 40     # how many tracers per element on average
+    tracdens = 50     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
     tracs_fence_enabled = True # stop tracers at the boundary
                                 # if they are about to flow out
@@ -301,9 +304,21 @@ if __name__ == "__main__":
 
     elif choose_model == 'falling block':
         # Falling block
-        do_heatdiff = False
-        tdep_rho = False
-        tdep_eta = False
+        do_stokes = True
+        do_advect = True       # Calculate Stokes and material advection?
+ 
+        do_heatdiff = False     # Calculate heat equation?
+
+        tdep_rho = False        # temperature dependent density?
+        tdep_eta = False        # temperature dependent viscosity?
+
+        etamin = 1e17          # global minimum viscosity
+        etamax = 1e24          # global maximum viscosity
+        
+        max_it = 100               # maximum number of time steps to take
+        max_time = SECINMYR * 5000 # maximum model time to run
+
+        ### Material properties
         tr_f[:, TR_RH0] = 3300
         tr_f[:, TR_MAT] = 1
         tr_f[:, TR_ET0] = 1e19
@@ -314,12 +329,123 @@ if __name__ == "__main__":
 
         bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
         bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
-        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP
+
+        surface_stabilization = False
         
         bcstokesvals[DIM*0 + IX] = np.empty(nx[IZ])
         bcstokesvals[DIM*0 + IX][:] = np.nan
-        #bcstokesvals[DIM*0 + IX][grid[IZ] < 150e3] = 1e3 / SECINYR
+
+        output_numpy = True
+        output_stride = 1
+        output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
+        output_outdir = "out_falling_block"
+
+    elif choose_model == 'rifting with temp':
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+
+        tdep_rho = False
+        tdep_eta = False
+
+        etamin = 1e17
+        etamax = 1e24
+        Tref = 1623
+        
+        max_it = 100000
+        max_time = SECINMYR * 5000
+        surface_stabilization = True
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
+
+        h_crust = 30e3
+        h_lmantle = 60e3
+        h_litho = h_crust + h_lmantle
+        h_air = 45e3
+
+        zair = tr_x[:,IZ] <= h_air
+        zcrust = (tr_x[:,IZ] <= h_air + h_crust) & (tr_x[:,IZ] > h_air)
+        zlmantle = (tr_x[:, IZ] <= h_air + h_litho) & (tr_x[:,IZ] > h_air + h_crust)
+        zseed = (tr_x[:,IZ] < h_air + 1.33*h_crust) & (tr_x[:,IZ] > h_air + 0.33*h_crust)
+        xseed = (tr_x[:,IX] > 0.5*L[IX] - 15e3) & (tr_x[:,IX] < 0.5*L[IX] + 15e3)
+        zxseed = zseed & xseed
+
+        tstep_modifier = 0.50
+
+        tr_f[:, TR_RH0] = 3300
+        tr_f[:, TR_MAT] = 1
+        tr_f[:, TR_ET0] = 1e20
+        tr_f[:, TR_ALP] = 3.5e-5
+        tr_f[:, TR_HCD] = 4.0
+        tr_f[:, TR_HCP] = 1250
+        tr_f[:, TR_TMP] = 1623
+        tr_f[:, TR_ACE] = 120e3
+        tr_f[:, TR_IHT] = 0.0
+        tr_f[zair, TR_RH0] = 1000
+        tr_f[zair, TR_ET0] = 1e20
+        tr_f[zair, TR_MAT] = 0
+        tr_f[zair, TR_ALP] = 0
+        tr_f[zair, TR_HCD] = 4.0
+        tr_f[zair, TR_HCP] = 1250
+        tr_f[zair, TR_TMP] = 273
+        tr_f[zair, TR_ACE] = 0.0
+        tr_f[zair, TR_IHT] = 0.0
+        tr_f[zcrust, TR_ALP] = 3.5e-5
+        tr_f[zcrust, TR_HCD] = 2.5
+        tr_f[zcrust, TR_HCP] = 1250
+        tr_f[zcrust, TR_TMP] = (600 + 273) * (tr_x[zcrust,IZ] - h_air) / (h_crust)
+        tr_f[zcrust, TR_ACE] = 120e3
+        tr_f[zcrust, TR_MAT] = 2
+        tr_f[zcrust, TR_ET0] = 1e23
+        tr_f[zcrust, TR_IHT] = 0.0
+        tr_f[zlmantle, TR_RH0] = 3200
+        tr_f[zlmantle, TR_ET0] = 1e21
+        tr_f[zlmantle, TR_MAT] = 3
+        tr_f[zlmantle, TR_TMP] = (1350 + 273) * (tr_x[zlmantle,IZ] - h_air) / (h_crust + h_lmantle)
+        tr_f[zxseed, TR_RH0] = 2900
+        tr_f[zxseed, TR_ET0] = 1e20
+        tr_f[zxseed, TR_MAT] = 4
+
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP + pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcstokesvals[DIM*0 + IX] = np.empty(nx[IZ])
+        # bcstokesvals[DIM*1 + IX][:] = np.nan  # every point is stress free
+        bcstokesvals[DIM*0 + IX][grid[IZ] < h_air] = 0.0
+        bcstokesvals[DIM*0 + IX][(grid[IZ] > h_air) & (grid[IZ] <= h_air + h_litho)] = -0.1 / SECINYR
+        bcstokesvals[DIM*0 + IX][grid[IZ] > h_air + h_litho] = (h_crust * 0.1 / SECINYR) / (L[IZ]-(h_air+h_litho))
+
+        bcstokesvals[DIM*1 + IX] = np.empty(nx[IZ])
+        # bcstokesvals[DIM*1 + IX][:] = np.nan  # every point is stress free
+        bcstokesvals[DIM*1 + IX][grid[IZ] <= h_air] = 0.0
+        bcstokesvals[DIM*1 + IX][(grid[IZ] > h_air) & (grid[IZ] <= h_air + h_litho)] = 0.1 / SECINYR
+        bcstokesvals[DIM*1 + IX][grid[IZ] > h_air + h_litho] = -(h_crust * 0.1 / SECINYR) / (L[IZ]-(h_air+h_litho))
+        # Boundary condition types for heat equation
+        # Possible values:
+        #   pylamp_diff.BC_TYPE_FIXTEMP
+        #   pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP  # Upper
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP  # Lower
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW  # Left 
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW  # Right
+
+        # B.C. values for heat eq.
+        bcheatvals[DIM*0 + IZ] = 273    # Upper bnd, i.e. surface
+        bcheatvals[DIM*1 + IZ] = 1623   # Lower bnd
+        bcheatvals[DIM*0 + IX] = 0      # Left bnd
+        bcheatvals[DIM*1 + IX] = 0      # Right bnd
+
+        bc_internal_type = 1
+
+        output_numpy = True
+        output_stride = 1
+        output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
+        output_outdir = "out_rift_with_temp"
 
     elif choose_model == 'rifting':
 
@@ -336,19 +462,19 @@ if __name__ == "__main__":
         
         max_it = 100000
         max_time = SECINMYR * 5000
-        surface_stabilization = False #True
+        surface_stabilization = True
         surfstab_theta = 0.5
         surfstab_tstep = -1 #1*SECINKYR    # if negative, a dynamic tstep is used 
 
         h_crust = 30e3
         h_lmantle = 60e3
         h_litho = h_crust + h_lmantle
-        h_air = 0 #45e3
+        h_air = 45e3
 
         zair = tr_x[:,IZ] <= h_air
         zcrust = (tr_x[:,IZ] <= h_air + h_crust) & (tr_x[:,IZ] > h_air)
         zlmantle = (tr_x[:, IZ] <= h_air + h_litho) & (tr_x[:,IZ] > h_air + h_crust)
-        zseed = (tr_x[:,IZ] < h_air + 0.67*h_crust) & (tr_x[:,IZ] > h_air + 0.33*h_crust)
+        zseed = (tr_x[:,IZ] < h_air + 1.5*h_crust) & (tr_x[:,IZ] > h_air + 0.33*h_crust)
         xseed = (tr_x[:,IX] > 0.5*L[IX] - 15e3) & (tr_x[:,IX] < 0.5*L[IX] + 15e3)
         zxseed = zseed & xseed
 
@@ -357,17 +483,17 @@ if __name__ == "__main__":
         tr_f[:, TR_RH0] = 3300
         tr_f[:, TR_MAT] = 2
         tr_f[:, TR_ET0] = 1e20
-        tr_f[zcrust, TR_RH0] = 2900
-        tr_f[zcrust, TR_MAT] = 1
-        tr_f[zcrust, TR_ET0] = 1e22
         tr_f[zair, TR_RH0] = 1000
         tr_f[zair, TR_ET0] = 1e18
         tr_f[zair, TR_MAT] = 0
+        tr_f[zcrust, TR_RH0] = 2900
+        tr_f[zcrust, TR_MAT] = 1
+        tr_f[zcrust, TR_ET0] = 1e22
         tr_f[zlmantle, TR_RH0] = 3200
         tr_f[zlmantle, TR_ET0] = 1e21
         tr_f[zlmantle, TR_MAT] = 3
         tr_f[zxseed, TR_RH0] = 2900
-        tr_f[zxseed, TR_ET0] = 1e20
+        tr_f[zxseed, TR_ET0] = 1e19
         tr_f[zxseed, TR_MAT] = 4
 
         bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
