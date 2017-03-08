@@ -29,7 +29,7 @@ if __name__ == "__main__":
     ###################################
     ### SELECT MODEL SET-UP VERSION ###
     ###################################
-    choose_model = 'rifting'    
+    choose_model = 'graphite'
     # possible values:
     #  - thick crust
     #  - falling block
@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
 
     #######################################
-    ### GENERAL SETTINGS AND GRID SETUP ###
+    ### Grid settings                   ###
     #######################################
 
     if choose_model == 'thick crust':
@@ -61,21 +61,24 @@ if __name__ == "__main__":
     elif choose_model == 'rifting with temp':
         nx    =   [33,45]         # use order z,x
         L     =   [330e3, 900e3] 
+    elif choose_model == 'graphite':
+        nx    =   [240,5]
+        L     =   [60e3, 0.125e3]
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
     
     #######################################
-
-    
-
+    ### Default configuration           ###
+    #######################################
+  
     tracdens = 50     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
     tracs_fence_enabled = True # stop tracers at the boundary
                                 # if they are about to flow out
     
-    do_stokes = True
-    do_advect = True
-    do_heatdiff = True
+    do_stokes = False
+    do_advect = False
+    do_heatdiff = False
     do_subgrid_heatdiff = False
 
     tstep_adv_max = 50e9 * SECINYR
@@ -84,13 +87,13 @@ if __name__ == "__main__":
     tstep_dif_min = 50e-9 * SECINYR
     tstep_modifier = 0.67             # coefficient for automatic tsteps
 
-    output_numpy = True
+    output_numpy = False
     output_stride = 1
     output_stride_ma = 1            # used if output_stride < 0: output fields every x million years
     output_outdir = "out"
 
-    tdep_rho = True
-    tdep_eta = True
+    tdep_rho = False
+    tdep_eta = False
     etamin = 1e17
     etamax = 1e23
     Tref = 1623
@@ -100,11 +103,16 @@ if __name__ == "__main__":
     max_time = SECINMYR * 5000
     bc_internal_type = 0           # 0 = disabled
                                    # 1 = keep material zero at constant temperature T=273K
-    surface_stabilization = True   # use if "sticky air" free surface present
+    surface_stabilization = False  # use if "sticky air" free surface present
     surfstab_theta = 0.5
     surfstab_tstep = -1 #1*SECINKYR            # if negative, a dynamic tstep is used 
 
     do_profiling = False
+
+
+    #######################################
+    ### General setup of things         ###
+    #######################################
 
     # Profiling
     if do_profiling:
@@ -147,7 +155,6 @@ if __name__ == "__main__":
     bcheat = [[]] * 4
     bcheatvals = [[]] * 4
 
-
     # Tracers
     ntrac = np.prod(nx)*tracdens
 
@@ -160,10 +167,9 @@ if __name__ == "__main__":
 
     
 
-
-    ###############################
-    ### DEFINE MODEL PARAMETERS ###
-    ###############################
+    #############################################
+    ### Define (non-default) model paramaters ###
+    #############################################
 
     if choose_model == 'lavalamp':
 
@@ -617,12 +623,91 @@ if __name__ == "__main__":
         output_stride_ma = 0.1            # used if output_stride < 0: output fields every x million years
         output_outdir = "out_slab"
 
+    elif choose_model == 'graphite':
+        tracdens = 50
+        tracdens_min = 30
+        tracs_fence_enable = True
+
+        do_stokes = False
+        do_advect = False
+        do_heatdiff = True
+        do_subgrid_heatdiff = False
+
+        tstep_dif_min = 1e-15
+        tstep_dif_max = 1e15
+        tstep_adv_min = tstep_dif_min
+        tstep_adv_max = tstep_dif_max
+        tstep_modifier = 0.33
+
+        output_numpy = True
+        output_stride = 1
+        output_stride_ma = 0.5
+
+        output_outdir = 'out_graphite'
+
+        tdep_rho = False
+        tdep_eta = False
+        etamin = 1e17
+        etamax = 1e24
+
+        Tref = 1623
+        
+        max_it = 1000
+        max_time = SECINMYR * 5000
+
+        surface_stabilization = False
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 
+
+        do_profiling = False
+
+        bc_internal_type = 1
+
+
+        ### mat defs ###
+        zair = tr_x[:, IZ] < 10e3
+        zcrust = tr_x[:, IZ] < 40e3
+        zunder = tr_x[:, IZ] >= 40e3
+
+        tr_f[zair, TR_RH0] = 1.293
+        tr_f[zair, TR_MAT] = 0
+        tr_f[zair, TR_ET0] = 1e23
+        tr_f[zair, TR_HCD] = 0.0243
+        tr_f[zair, TR_HCP] = 10000 # real value is ~1.005
+        tr_f[zair, TR_TMP] = 273 
+
+        tr_f[zcrust, TR_RH0] = 3300
+        tr_f[zcrust, TR_MAT] = 1
+        tr_f[zcrust, TR_ET0] = 1e23
+        tr_f[zcrust, TR_HCD] = 3.0
+        tr_f[zcrust, TR_HCP] = 850
+        tr_f[zcrust, TR_TMP] = 273 + (tr_x[zcrust, IZ]-10e3) * (600 + 273) / 50e3
+
+        tr_f[zunder, TR_RH0] = 3300
+        tr_f[zunder, TR_MAT] = 1
+        tr_f[zunder, TR_ET0] = 1e23
+        tr_f[zunder, TR_HCD] = 3.0
+        tr_f[zunder, TR_HCP] = 850
+        tr_f[zunder, TR_TMP] = 273 + (tr_x[zunder, IZ]-10e3) * (600 + 273) / 50e3
+
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 0 + 273
+        bcheatvals[DIM*1 + IZ] = 600 + 273
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
 
-    ###############################
-    ###############################
 
+
+    #############################################
+    ### Config done. Setup rest of things.    ###
+    #############################################
 
     ## Passive markers
     inixdiv = np.linspace(0, L[IX], 10)
@@ -640,7 +725,7 @@ if __name__ == "__main__":
     
 
     #############################################
-    ### CONFIG DONE, START THE MAIN TIME LOOP ###
+    ### PREPS DONE, START THE MAIN TIME LOOP  ###
     #############################################
 
     it = 0
@@ -1013,10 +1098,10 @@ if __name__ == "__main__":
                     np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
                 else:
                     np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, eta=f_etas, temp=newvel[IX]*0.0, tstep=it, time=totaltime)
-                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
             else:
                 np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
-                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=prev_tr_x, tr_f=prev_tr_f, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tstep=it, time=totaltime)
 
 
     if do_profiling:

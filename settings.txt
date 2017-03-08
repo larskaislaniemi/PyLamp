@@ -1,0 +1,75 @@
+tracdens                        int
+tracdens_min                    real
+tracs_fence_enable              bool
+do_stokes                       bool
+do_advect                       bool
+do_heatdiff                     bool
+do_subgrid_heatdiff             bool
+tstep_[adv|dif]_[max|min]       real
+tstep_modifier                  real
+output_numpy                    bool
+output_stride                   int
+  if negative, use 'output_stride_ma'
+output_stride_ma                real
+output_outdir                   str
+tdep_rho                        bool
+tdep_eta                        bool
+eta[min|max]                    real
+Tref                            real
+force_trac2grid                 bool
+  force trac2grid interpolation even if there is no advection
+max_it                          int
+max_time                        real
+surface_stabilization           bool
+surfstab_theta                  real
+surfstab_tstep                  real
+  if negative, a dynamic tstep is used
+do_profiling                    bool
+
+bc_internal_type                int
+  0 = disabled
+  1 = keep material zero at T=273K
+
+bcstokes                        array<enum>
+  From pylamp_stokes, BC_TYPE_
+  NOSLIP
+  FREESLIP
+  CYCLIC: values same than at the opposite boundary
+  FLOWTHRU: zero normal stress OR given normal velocity
+
+  FLOWTHRU is to be added (summed) to FREESLIP or NOSLIP value,
+  not used alone.
+
+  Given as list of length [num of boundaries]. 
+  Boundary numbering: DIM*[side] + DIR, e.g. DIM*1 + IZ is the
+  right (lower) vertical boundary.
+
+bcstokesvals                    array<>
+  Used in case of FLOWTHRU, otherwise N/A
+
+  Given as list of length [num of boundaries]
+  Boundary numbering as in bcstokes.
+
+  All elements in the list can be 
+  None: means N/A (default)
+  np.ndarray: one element for each grid point along this boundary, with
+  - np.nan: zero normal stress
+  - real: use this as normal velocity
+
+
+bcheat                          array<enum>
+  From pylamp_diff, BC_TYPE_
+  FIXTEMP
+  FIXFLOW
+  
+  Given as list of length [num of boundaries]
+  Boundary numbering as in bcstokes.
+
+bcheatvals                      array<real>
+  Either temperature or heat flow value
+  
+  Given as list of length [num of boundaries]
+  Boundary numbering as in bcstokes.
+
+
+
