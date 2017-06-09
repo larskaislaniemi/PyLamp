@@ -73,3 +73,20 @@ bcheatvals                      array<real>
 
 
 
+
+Material properties:
+ - TR_RHO *
+ - TR_ETA *
+ - TR_HCD
+ - TR_HCP
+ - TR_RH0
+ - TR_ALP
+ - TR_ACE
+ - TR_ET0
+ - TR_IHT
+
+Other tracer functions
+ - TR_MAT
+ - TR_TMP 
+ - TR__ID 
+ - TR_MRK

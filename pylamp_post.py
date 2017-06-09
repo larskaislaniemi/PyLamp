@@ -3,6 +3,8 @@ import sys
 
 sys.path.append('/usr/lib/python3.5/site-packages')
 
+import matplotlib.pyplot as plt
+
 import numpy as np
 from pylamp_const import *
 #from bokeh.plotting import figure, output_file, show, save
@@ -11,19 +13,21 @@ import vtk
 from scipy.interpolate import griddata
 import os
 import glob
+import pandas as pd
 
 ###
 # program to convert pylamp output (npz files) to plots or vtk files
 #
 # usage: python3 pylamp_post.py [SCREEN_TRAC_TEMP|VTKTRAC|VTKGRID] {required filenames ...}
 #
-# currently only the option "VTKTRAC" works
+# currently only the options "VTKTRAC" and "VTKGRID" work
 ###
 
 POSTTYPES = {
         'SCREEN_TRAC_TEMP': 1,
         'VTKTRAC':          2,
-        'VTKGRID':          3
+        'VTKGRID':          3,
+        'ANALYSIS001':      4
 }
 
 
@@ -242,7 +246,69 @@ if __name__ == "__main__":
             else:
                 grid_writer.SetInputData(vtkgrid)
             grid_writer.Write()
-            
+
+    elif posttype == POSTTYPES['ANALYSIS001']:
+        # read temperature at given depth over time
+        # do some plotting based on that
+
+        if len(sys.argv) < 3:
+            raise Exception("Needed arguments: type, gridfile(s)")
+        
+        grfields = ["temp", "velz", "velx", "pres", "rho"]
+        grfieldnames = ["temp", "velz", "velx", "pres", "rho"]
+
+        if os.path.isfile(sys.argv[2]):
+            fileslist = [sys.argv[2]]
+        else:
+            fileslist = glob.glob(sys.argv[2])
+
+        fileslist.sort()
+
+        i = 0
+        nt = len(fileslist)
+        isFirstTimeStep = True
+        timesarr = np.zeros(nt)
+        valuesarr = np.zeros(nt)
+
+
+        for griddatafile in fileslist:
+            i = i + 1
+            griddata = np.load(griddatafile)
+
+            grid = [[]] * 2
+            grid[IZ] = griddata["gridz"]
+            grid[IX] = griddata["gridx"]
+
+            timesarr[i-1] = griddata["time"]
+
+            N = np.prod(griddata[grfields[0]].shape)
+            Ng = len(grid[IZ]) * len(grid[IX])
+            assert N == Ng
+
+            stride = 1
+
+            locGridPointZ = np.argmin(np.abs(grid[IZ] - 20e3))
+            locGridPointX = 3
+
+            valuesarr[i-1] = griddata["temp"][locGridPointZ, locGridPointX]
+
+        dval = { 'time': timesarr/(60*60*365.25*1e6), 'temp': valuesarr-273.15 }
+        ddif = { 'dtemp' : np.zeros(nt-1), 'mtime': np.zeros(nt-1) }
+        ddif['dtemp'] = 60*60*24*365.25*1e6 * (valuesarr[1:] - valuesarr[:-1]) / (timesarr[1:] - timesarr[:-1])
+        ddif['mtime'] = 0.5 * (timesarr[1:] + timesarr[:-1]) / (60*60*24*365.25*1e6)
+        ddif = pd.DataFrame(ddif)
+        dval = pd.DataFrame(dval)
+
+        ## Plot dT/dt
+        ddif.plot(x='mtime', y='dtemp')
+        plt.show()
+
+        ## Plot T
+        #dval.plot(x='time', y='temp')
+        #plt.show()
+
+        #print (timesarr)
+        #print (valuesarr)
 
     else:
         raise Exception("Undefined plot type")

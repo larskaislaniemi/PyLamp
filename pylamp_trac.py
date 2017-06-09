@@ -27,7 +27,12 @@ from scipy.interpolate import griddata
 import itertools
 import sys
 
-def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR, stopOnError=False):
+this = sys.modules[__name__]
+this.stored_distx = None
+this.stored_distz = None
+this.stored_nearestcorner = None
+
+def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR, stopOnError=False, staticTracs=False):
     # Interpolate values (gridfield) from grid to tracer
     # value (tr_f). 
 
@@ -64,21 +69,36 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
 
     ntrac = tr_x.shape[0]
 
-    # distances of tra
+    # distances of tracers to boundaries of the element
     distx = np.zeros((ntrac,4))
     distz = np.zeros((ntrac,4))
 
-    for di in [0,1]:
-        for dj in [0,1]:
-            icorner = di * 2 + dj
-            distz[:,icorner] = (1-2*di) * (tr_x[:,IZ] - grid[IZ][ielem+di])
-            distx[:,icorner] = (1-2*dj) * (tr_x[:,IX] - grid[IX][jelem+dj])
+    if not staticTracs or this.stored_nearestcorner is None:
+        for di in [0,1]:
+            for dj in [0,1]:
+                icorner = di * 2 + dj
+                distz[:,icorner] = (1-2*di) * (tr_x[:,IZ] - grid[IZ][ielem+di])
+                distx[:,icorner] = (1-2*dj) * (tr_x[:,IX] - grid[IX][jelem+dj])
 
-    if method & INTERP_METHOD_NEAREST:
-        disttot = distz**2 + distx**2
-        nearestcorner = np.argmin(disttot, axis=1)
-        nearestcorner_dj = (nearestcorner % 2).astype(int)
-        nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
+        if method & INTERP_METHOD_NEAREST or staticTracs:
+            disttot = distz**2 + distx**2
+            nearestcorner = np.argmin(disttot, axis=1)
+            nearestcorner_dj = (nearestcorner % 2).astype(int)
+            nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
+
+        if staticTracs:
+            this.stored_distx = np.copy(distx)
+            this.stored_distz = np.copy(distz)
+            this.stored_nearestcorner = np.copy(nearestcorner)
+
+    else:
+        distx = this.stored_distx
+        distz = this.stored_distz
+        nearestcorner = this.stored_nearestcorner
+
+        if method & INTERP_METHOD_NEAREST:
+            nearestcorner_dj = (nearestcorner % 2).astype(int)
+            nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
 
     for ifield in range(nfield):
         if method & INTERP_METHOD_NEAREST:

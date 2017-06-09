@@ -36,7 +36,11 @@ if __name__ == "__main__":
     #  - rifting
     #  - slab
     #  - lavalamp
+    #  - graphite
+    #  - stagnant lid
     ###################################
+
+    model_parameters = [ 0 ]
 
 
     #######################################
@@ -62,20 +66,23 @@ if __name__ == "__main__":
         nx    =   [33,45]         # use order z,x
         L     =   [330e3, 900e3] 
     elif choose_model == 'graphite':
-        nx    =   [240,5]
-        L     =   [60e3, 0.125e3]
+        nx    =   [31, 5]
+        L     =   [30e3, 4e3]
+    elif choose_model == 'stagnant lid':
+        nx    =   [34, 34]
+        L     =   [660e3, 660e3]
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
-    
+
     #######################################
     ### Default configuration           ###
     #######################################
-  
+
     tracdens = 50     # how many tracers per element on average
     tracdens_min = 30 # minimum number of tracers per element
     tracs_fence_enabled = True # stop tracers at the boundary
                                 # if they are about to flow out
-    
+
     do_stokes = False
     do_advect = False
     do_heatdiff = False
@@ -109,6 +116,10 @@ if __name__ == "__main__":
 
     do_profiling = False
 
+    event_codes = []
+    event_enable_times = []
+    event_disable_times = []
+    event_counts = []
 
     #######################################
     ### General setup of things         ###
@@ -122,6 +133,7 @@ if __name__ == "__main__":
     # Derived options
     # dx for regular grid
     dx    =   [L[i]/(nx[i]-1) for i in range(DIM)]
+    pprint(dx)
 
     # Form the grids
     grid   =   [np.linspace(0, L[i], nx[i]) for i in range(DIM)] 
@@ -165,7 +177,7 @@ if __name__ == "__main__":
 
     tr_f[:, TR__ID] = np.arange(0, ntrac)
 
-    
+
 
     #############################################
     ### Define (non-default) model paramaters ###
@@ -175,7 +187,7 @@ if __name__ == "__main__":
 
         do_stokes = True
         do_advect = True       # Calculate Stokes and material advection?
- 
+
         do_heatdiff = True     # Calculate heat equation?
 
         tdep_rho = True        # temperature dependent density?
@@ -183,7 +195,7 @@ if __name__ == "__main__":
 
         etamin = 1e17          # global minimum viscosity
         etamax = 1e24          # global maximum viscosity
-        
+
         max_it = 100000               # maximum number of time steps to take
         max_time = SECINMYR * 5000    # maximum model time to run
         surface_stabilization = False # switch to True if an air/water layer is present
@@ -637,13 +649,16 @@ if __name__ == "__main__":
         tstep_dif_max = 1e15
         tstep_adv_min = tstep_dif_min
         tstep_adv_max = tstep_dif_max
-        tstep_modifier = 0.33
+        tstep_modifier = 0.67
 
         output_numpy = True
-        output_stride = 1
-        output_stride_ma = 0.5
+        output_stride = -1
+        output_stride_ma = 1.0
 
-        output_outdir = 'out_graphite'
+        if model_parameters == 1:
+            output_outdir = 'out_graphite'
+        else:
+            output_outdir = 'out_graphite_no'
 
         tdep_rho = False
         tdep_eta = False
@@ -652,8 +667,8 @@ if __name__ == "__main__":
 
         Tref = 1623
         
-        max_it = 1000
-        max_time = SECINMYR * 5000
+        max_it = 1e20
+        max_time = SECINMYR * 100
 
         surface_stabilization = False
         surfstab_theta = 0.5
@@ -665,14 +680,16 @@ if __name__ == "__main__":
 
 
         ### mat defs ###
-        zair = tr_x[:, IZ] < 10e3
-        zcrust = tr_x[:, IZ] < 40e3
-        zunder = tr_x[:, IZ] >= 40e3
+        d_air = 0e3
+        zair = tr_x[:, IZ] < d_air
+        zcrust = (tr_x[:, IZ] >= d_air) & (tr_x[:, IZ] < d_air + 30e3)
+        zunder = tr_x[:, IZ] >= d_air + 30e3
+        zgraphite = (tr_x[:, IZ] >= d_air + 25e3) & (tr_x[:, IZ] < d_air + 30e3)
 
-        tr_f[zair, TR_RH0] = 1.293
+        tr_f[zair, TR_RH0] = 3300 # real value is 1.293
         tr_f[zair, TR_MAT] = 0
         tr_f[zair, TR_ET0] = 1e23
-        tr_f[zair, TR_HCD] = 0.0243
+        tr_f[zair, TR_HCD] = 3.0 # real value is 0.0243
         tr_f[zair, TR_HCP] = 10000 # real value is ~1.005
         tr_f[zair, TR_TMP] = 273 
 
@@ -681,14 +698,22 @@ if __name__ == "__main__":
         tr_f[zcrust, TR_ET0] = 1e23
         tr_f[zcrust, TR_HCD] = 3.0
         tr_f[zcrust, TR_HCP] = 850
-        tr_f[zcrust, TR_TMP] = 273 + (tr_x[zcrust, IZ]-10e3) * (600 + 273) / 50e3
+        tr_f[zcrust, TR_TMP] = 273 + (tr_x[zcrust, IZ]-d_air) * 600 / 30e3
 
         tr_f[zunder, TR_RH0] = 3300
         tr_f[zunder, TR_MAT] = 1
         tr_f[zunder, TR_ET0] = 1e23
         tr_f[zunder, TR_HCD] = 3.0
         tr_f[zunder, TR_HCP] = 850
-        tr_f[zunder, TR_TMP] = 273 + (tr_x[zunder, IZ]-10e3) * (600 + 273) / 50e3
+        tr_f[zunder, TR_TMP] = 273 + (tr_x[zunder, IZ]-d_air) * 600 / 30e3
+
+        if model_parameters[0] == 1:
+            tr_f[zgraphite, TR_HCD] = 12.0
+            tr_f[zgraphite, TR_MAT] = 2
+        else:
+            pass
+
+        tr_f[:, TR_IHT] = 0.0
 
         bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
         bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
@@ -699,6 +724,83 @@ if __name__ == "__main__":
         bcheatvals[DIM*1 + IZ] = 600 + 273
         bcheatvals[DIM*0 + IX] = 0
         bcheatvals[DIM*1 + IX] = 0
+
+
+        event_codes.append("output_stride_ma = 0.1; bcheatvals[DIM*1 + IZ] = \
+                           800 + 273;")
+        event_counts.append(1)
+        event_enable_times.append(60*60*24*365.25*50e6)
+        event_disable_times.append(-1)
+
+    elif choose_model == 'stagnant lid':
+        tracdens = 50
+        tracdens_min = 30
+        tracs_fence_enable = True
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+        do_subgrid_heatdiff = True
+
+        tstep_dif_min = 1e-15
+        tstep_dif_max = 1e15
+        tstep_adv_min = tstep_dif_min
+        tstep_adv_max = tstep_dif_max
+        tstep_modifier = 0.67
+
+        output_numpy = True
+        output_stride = 10
+        output_stride_ma = 0.01
+
+        output_outdir = 'out_staglid'
+
+        tdep_rho = True
+        tdep_eta = True
+        etamin = 1e17
+        etamax = 1e24
+
+        Tref = 1623
+        
+        max_it = 1e20
+        max_time = SECINMYR * 5000
+
+        surface_stabilization = False
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 
+
+        do_profiling = False
+
+        bc_internal_type = 0
+
+        ### mat defs ###
+        zmantle = tr_x[:, IZ] < 660e3
+
+        tr_f[zmantle, TR_MAT] = 1
+        tr_f[zmantle, TR_RH0] = 3300
+        tr_f[zmantle, TR_ET0] = 1e19
+        tr_f[zmantle, TR_HCD] = 3.0
+        tr_f[zmantle, TR_HCP] = 1250
+        tr_f[zmantle, TR_ALP] = 3.5e-5
+        tr_f[zmantle, TR_ACE] = 120e3
+        tr_f[zmantle, TR_IHT] = 0.0
+
+        tr_f[zmantle, TR_TMP] = 1623
+
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 0 + 273
+        bcheatvals[DIM*1 + IZ] = 1350 + 273
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
 
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
@@ -722,7 +824,10 @@ if __name__ == "__main__":
     if do_advect ^ do_stokes:
         raise Exception("Not implemented yet. Both do_advect and do_stokes need to be either disabled or enabled.")
 
-    
+    if not do_advect:
+        staticTracs = True
+    else:
+        staticTracs = False
 
     #############################################
     ### PREPS DONE, START THE MAIN TIME LOOP  ###
@@ -747,6 +852,16 @@ if __name__ == "__main__":
             elif bc_internal_type == 3:
                 idxmat = tr_f[:, TR_MAT] <= 1
                 tr_f[idxmat, TR_TMP] = 273
+
+        # handle events
+        for ievent in range(len(event_codes)):
+            if event_counts[ievent] > 0 and event_enable_times[ievent] <= totaltime \
+               and (event_disable_times[ievent] > totaltime or \
+               event_disable_times[ievent] < 0):
+                pprint("Calling EVENT number " + str(ievent))
+                exec(event_codes[ievent])
+                event_counts[ievent] = event_counts[ievent] - 1
+
 
         pprint("Calculate physical properties")
         if tdep_rho:
@@ -797,8 +912,14 @@ if __name__ == "__main__":
             f_T[0, :] = newtemp[0, :]
             f_T[-1, :] = newtemp[-1, :]
 
+        if bc_internal_type > 0:
+            if bc_internal_type == 1:
+                idx = f_mat == 0
+                f_T[idx] = 273.0
+
         if do_heatdiff:
             diffusivity = f_k[IZ] / (f_rho * f_Cp)
+            #pprint("Min dx, max diff: " + str(np.min(dx)) + ", " + str(np.max(diffusivity)))
             tstep_temp = tstep_modifier * np.min(dx)**2 / np.max(2*diffusivity)
             tstep_temp = min(tstep_temp, tstep_dif_max)
             tstep_temp = max(tstep_temp, tstep_dif_min)
@@ -904,14 +1025,14 @@ if __name__ == "__main__":
                 # On first timestep interpolate absolute temperature values to tracers ...
                 # Also, assume that all tracers are within the domain at this point
                 pprint("grid2trac T")
-                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
                 tr_f[:, TR_TMP] = l_interp_tracvals[:, 0]
             else:
                 # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
                 # (and exclude those that are outside the domain)
                 pprint("grid2trac dT")
                 newdT = newtemp - f_T
-                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
                 tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + l_interp_tracvals[:, 0]
 
                 #if bc_internal_type == 1:
@@ -936,7 +1057,7 @@ if __name__ == "__main__":
                     dT_subgrid_diff = subgrid_corr_T - tr_f[:, TR_TMP]
                     dT_subgrid_diff_back = np.zeros_like(dT_subgrid_diff)
                     pylamp_trac.trac2grid(tr_x, dT_subgrid_diff[:, None], mesh, grid, [f_sgc], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
-                    pylamp_trac.grid2trac(tr_x, dT_subgrid_diff_back[:,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True)
+                    pylamp_trac.grid2trac(tr_x, dT_subgrid_diff_back[:,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
                     tr_f[:, TR_TMP] = subgrid_corr_T - dT_subgrid_diff_back
             
             # end of heat diffusion 
@@ -1086,7 +1207,7 @@ if __name__ == "__main__":
                     
 
 
-        if output_numpy and ((output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
+        if output_numpy and (it == 1 or (output_stride > 0 and (it-1) % output_stride == 0) or (output_stride < 0 and (totaltime - time_last_output)/SECINMYR > output_stride_ma)):
             if not os.path.exists(output_outdir):
                 os.makedirs(output_outdir)
             if output_stride > 0:
