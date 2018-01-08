@@ -29,7 +29,7 @@ if __name__ == "__main__":
     ###################################
     ### SELECT MODEL SET-UP VERSION ###
     ###################################
-    choose_model = 'graphite'
+    choose_model = 'stagnant lid'
     # possible values:
     #  - thick crust
     #  - falling block
@@ -87,6 +87,7 @@ if __name__ == "__main__":
     do_advect = False
     do_heatdiff = False
     do_subgrid_heatdiff = False
+    subgrid_corr_coefficient = 0.5
 
     tstep_adv_max = 50e9 * SECINYR
     tstep_adv_min = 50e-9 * SECINYR
@@ -741,6 +742,7 @@ if __name__ == "__main__":
         do_advect = True
         do_heatdiff = True
         do_subgrid_heatdiff = True
+        subgrid_corr_coefficient = 0.5
 
         tstep_dif_min = 1e-15
         tstep_dif_max = 1e15
@@ -1032,7 +1034,8 @@ if __name__ == "__main__":
                 # (and exclude those that are outside the domain)
                 pprint("grid2trac dT")
                 newdT = newtemp - f_T
-                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+                ##pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_NEAREST, stopOnError=True, staticTracs=staticTracs)
                 tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + l_interp_tracvals[:, 0]
 
                 #if bc_internal_type == 1:
@@ -1048,18 +1051,47 @@ if __name__ == "__main__":
                 
                 ## subgrid diffusion
                 # correction at tracers
-                # NB! Assumes regular grid
+                # NB! Assumes regular grid, 2D
                 if do_subgrid_heatdiff:
-                    d = 0.5
-                    subgrid_corr_dt0 = tr_f[:, TR_HCP] * tr_f[:, TR_RHO] / (tr_f[:, TR_HCD] * ((2/dx[IX])**2 + (2/dx[IZ])**2))
-                    subgrid_corr_T = old_tr_f[:, TR_TMP] - (old_tr_f[:, TR_TMP] - tr_f[:, TR_TMP]) * np.exp(-d * tstep / subgrid_corr_dt0)
-                    # compensation at eulerian nodes
-                    dT_subgrid_diff = subgrid_corr_T - tr_f[:, TR_TMP]
-                    dT_subgrid_diff_back = np.zeros_like(dT_subgrid_diff)
-                    pylamp_trac.trac2grid(tr_x, dT_subgrid_diff[:, None], mesh, grid, [f_sgc], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
-                    pylamp_trac.grid2trac(tr_x, dT_subgrid_diff_back[:,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
-                    tr_f[:, TR_TMP] = subgrid_corr_T - dT_subgrid_diff_back
-            
+                    # prepare diffusivity on nodes for interpolation
+                    f_diffusivity_mp = 0.5 * (f_k[IZ][:-1, :-1] + f_k[IZ][:-1, 1:]) + 0.5 * (f_k[IX][0:-1,:-1] + f_k[IX][1:,:-1])
+                    f_diffusivity = np.zeros_like(f_T)
+                    f_diffusivity_count = np.zeros_like(f_T)
+                    f_diffusivity[0:-1,0:-1] += f_diffusivity_mp[:,:]
+                    f_diffusivity[0:-1,1:] += f_diffusivity_mp[:,:]
+                    f_diffusivity[1:,0:-1] += f_diffusivity_mp[:,:]
+                    f_diffusivity[1:,1:] += f_diffusivity_mp[:,:]
+                    f_diffusivity_count[0:-1,0:-1] += 1
+                    f_diffusivity_count[0:-1,1:] += 1
+                    f_diffusivity_count[1:,0:-1] += 1
+                    f_diffusivity_count[1:,1:] += 1
+                    f_diffusivity = f_diffusivity / f_diffusivity_count
+
+                    tr_fi_heat = np.zeros((tr_f.shape[0], 4))
+                    pylamp_trac.grid2trac(tr_x, tr_fi_heat, grid, [f_diffusivity, f_rho, f_Cp, f_T], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+
+                    # subgrid diffusion
+                    d = subgrid_corr_coefficient
+                    
+                    dt_diff_tr = (tr_fi_heat[:,2] * tr_fi_heat[:,1] / tr_fi_heat[:,0]) / (2.0/dx[IX]**2 + 2.0/dx[IZ]**2)
+                    #print("dt_diff_tr: ", dt_diff_tr.shape)
+                    dT_subg_tr = (tr_fi_heat[:,3] - tr_f[:,TR_TMP]) * (1.0 - np.exp(-d * tstep / dt_diff_tr))
+                    #print("dT_subg_tr: ", dT_subg_tr.shape)
+
+                    pylamp_trac.trac2grid(tr_x, dT_subg_tr[:,None], mesh, grid, [f_sgc], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
+                    #print("f_sgc: ", f_sgc.shape)
+                    ## TODO: correct f_sgc at boundaries (???)
+                    dT_rem_nodes = newdT - f_sgc #f_sgc == "dT_subg_nodes"
+                    #print("dT_rem_nodes: ", dT_rem_nodes.shape)
+                    dT_rem_tr = np.zeros((tr_f.shape[0]))
+                    #print("dT_rem_tr: ", dT_rem_tr.shape)
+                    pylamp_trac.grid2trac(tr_x, dT_rem_tr[:,None], grid, [f_sgc], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+                    #print("dT_rem_tr: ", dT_rem_tr.shape)
+                    #print("tr_f[:,TR_TMP]: ", tr_f[:,TR_TMP].shape)
+                    #print("dT_subg_tr: ", dT_subg_tr)
+                    #print("dT_rem_tr: ", dT_rem_tr)
+                    tr_f[:, TR_TMP] = tr_f[:,TR_TMP] + dT_subg_tr + dT_rem_tr
+
             # end of heat diffusion 
 
         if do_advect:
@@ -1185,12 +1217,15 @@ if __name__ == "__main__":
 
                 prev_tr_f = np.copy(tr_f)
                 prev_tr_x = np.copy(tr_x)
+                prev_trac_vel = np.copy(trac_vel)
 
                 for i in range(n_missing_tracs.size):
                     tr_x_tmp = np.random.rand(n_missing_tracs[i], DIM)
                     tr_x_tmp[:,IX] = tr_x_tmp[:,IX] * (jelem_bnds[1][i] - jelem_bnds[0][i]) + jelem_bnds[0][i]
                     tr_x_tmp[:,IZ] = tr_x_tmp[:,IZ] * (ielem_bnds[1][i] - ielem_bnds[0][i]) + ielem_bnds[0][i]
                     tr_f_tmp = np.zeros((n_missing_tracs[i], NFTRAC))
+                    trac_vel_tmp = np.zeros((n_missing_tracs[i], DIM))
+
                     maxid_current = np.max(tr_f[:,TR__ID])
                     tr_f_tmp[:,TR__ID] = np.arange(maxid_current, maxid_current + n_missing_tracs[i])
 
@@ -1203,6 +1238,7 @@ if __name__ == "__main__":
 
                     tr_f = np.append(tr_f, tr_f_tmp, axis=0)
                     tr_x = np.append(tr_x, tr_x_tmp, axis=0)
+                    trac_vel = np.append(trac_vel, trac_vel_tmp, axis=0)
                     ntrac = ntrac + n_missing_tracs[i]
                     
 
@@ -1216,12 +1252,12 @@ if __name__ == "__main__":
                 time_last_output = SECINMYR * output_stride_ma * float(int(totaltime/(SECINMYR*output_stride_ma)))
             if do_stokes:
                 if do_heatdiff:
-                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
+                    np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, temp=newtemp, sgc=f_sgc, eta=f_etas, tstep=it, time=totaltime)
                 else:
                     np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], velz=newvel[IZ], velx=newvel[IX], pres=newpres, rho=f_rho, eta=f_etas, temp=newvel[IX]*0.0, tstep=it, time=totaltime)
                 np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tr_v=trac_vel, tstep=it, time=totaltime)
             else:
-                np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, eta=f_etas, tstep=it, time=totaltime)
+                np.savez(output_outdir + "/griddata.{:06d}.npz".format(it), gridz=grid[IZ], gridx=grid[IX], rho=f_rho, temp=newtemp, eta=f_etas, sgc=f_sgc, tstep=it, time=totaltime)
                 np.savez(output_outdir + "/tracs.{:06d}.npz".format(it), tr_x=tr_x, tr_f=tr_f, tstep=it, time=totaltime)
 
 

@@ -179,8 +179,8 @@ if __name__ == "__main__":
         if len(sys.argv) < 3:
             raise Exception("Needed arguments: type, gridfile(s)")
 
-        grfields = ["temp", "velz", "velx", "pres", "rho"]
-        grfieldnames = ["temp", "velz", "velx", "pres", "rho"]
+        grfields = ["temp", "velz", "velx", "pres", "rho", "sgc"]
+        grfieldnames = ["temp", "velz", "velx", "pres", "rho", "sgc"]
 
         if os.path.isfile(sys.argv[2]):
             fileslist = [sys.argv[2]]
