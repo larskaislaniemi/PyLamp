@@ -14,9 +14,9 @@ import sys
 # 2D implemented, formulation "3D ready"
 ###
 
-BC_TYPE_NOSLIP = 0
-BC_TYPE_FREESLIP = 1
-BC_TYPE_CYCLIC = 2
+BC_TYPE_NOSLIP = 1 
+BC_TYPE_FREESLIP = 2
+BC_TYPE_CYCLIC = 4
 BC_TYPE_FLOWTHRU = 128
 
 def gidx(idxs, nx, dim):
@@ -101,7 +101,7 @@ def x2vp(x, nx):
     return (newvel, newpres)
 
 
-def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=False, tstep=None, surfstab_theta=0.5):
+def makeStokesMatrix(nx, grid, gridmp, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=False, tstep=None, surfstab_theta=0.5):
     # Form the solution matrix for stokes/cont solving
     #
     # Currently can do only 2D
@@ -122,9 +122,9 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     Kbond = 4*mineta / (avgdx + avgdz)**2
 
 
-    
+
     #### ghost points: ####
-    
+
     j = nx[IX]-1
     i = np.arange(0, nx[IZ])
 
@@ -155,26 +155,30 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     
     #### boundaries: ####
 
+
     # at z = 0
     i = 0
 
     # vx
     j = np.arange(1, nx[IX]-1)
-    if bc[DIM*0 + IZ] == BC_TYPE_NOSLIP:
+    if bc[DIM*0 + IZ] & BC_TYPE_NOSLIP:
         # vx extrapolated to be zero from two internal nodes
+        #coordGrad = (gridmp[IZ][i] - grid[IZ][i]) / (gridmp[IZ][i+1] - gridmp[IZ][i])
+        #A[gidx([i, j], nx, DIM) + IX, gidx([i,   j], nx, DIM) + IX] = Kcont * (1.0 + coordGrad)
+        #A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * (-coordGrad)
         A[gidx([i, j], nx, DIM) + IX, gidx([i,   j], nx, DIM) + IX] = Kcont * (-1 / (grid[IZ][i+2] - grid[IZ][i]) + (-1) / (grid[IZ][i+1] - grid[IZ][i])) 
         A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = Kcont * (1 / (grid[IZ][i+2] - grid[IZ][i]))
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    elif bc[DIM*0 + IZ] == BC_TYPE_FREESLIP:
+    elif bc[DIM*0 + IZ] & BC_TYPE_FREESLIP:
         # vx equals to vx in grid point next to bnd
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([i+1, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
 
-    elif bc[DIM*0 + IZ] == BC_TYPE_CYCLIC:
+    elif bc[DIM*0 + IZ] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([nx[IZ]-1, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
@@ -182,7 +186,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
 
     # vz
     j = np.arange(0, nx[IX]-1)
-    if bc[DIM*0 + IZ] == BC_TYPE_CYCLIC:
+    if bc[DIM*0 + IZ] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont
         A[gidx([i, j], nx, DIM) + IZ, gidx([nx[IZ]-1, j], nx, DIM) + IZ] = -Kcont
         lc[gidx([i, j], nx, DIM) + IZ] += 1
@@ -199,26 +203,28 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
         
     # vx
     j = np.arange(1, nx[IX]-1)
-    if bc[DIM*1 + IZ] == BC_TYPE_NOSLIP:
-        # vx extrapolated to be zero from two internal nodes
+    if bc[DIM*1 + IZ] & BC_TYPE_NOSLIP:
+        # vx interpolated to be zero from one internal and one external node
+        #A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * 0.5
+        #A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * 0.5
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont * (-1 / (grid[IZ][i-2] - grid[IZ][i]) + (-1) / (grid[IZ][i-1] - grid[IZ][i]))
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = Kcont * (1 / (grid[IZ][i-2] - grid[IZ][i]))
         lc[gidx([i-1, j], nx, DIM) + IX] += 1
         rhs[gidx([i-1, j], nx, DIM) + IX] = 0
 
-    elif bc[DIM*1 + IZ] == BC_TYPE_FREESLIP:
+    elif bc[DIM*1 + IZ] & BC_TYPE_FREESLIP:
         # vx equals to vx in grid point next to bnd
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-1, j], nx, DIM) + IX] = Kcont
         A[gidx([i-1, j], nx, DIM) + IX, gidx([i-2, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i-1, j], nx, DIM) + IX] += 1
         rhs[gidx([i-1, j], nx, DIM) + IX] = 0
 
-    elif bc[DIM*1 + IZ] == BC_TYPE_CYCLIC:
+    elif bc[DIM*1 + IZ] & BC_TYPE_CYCLIC:
         A[gidx([i, j], nx, DIM) + IX, gidx([i, j], nx, DIM) + IX] = Kcont
         A[gidx([i, j], nx, DIM) + IX, gidx([0, j], nx, DIM) + IX] = -Kcont
         lc[gidx([i, j], nx, DIM) + IX] += 1
         rhs[gidx([i, j], nx, DIM) + IX] = 0
-    
+
     # vz
     j = np.arange(0, nx[IX]-1)
     if bc[DIM*1 + IZ] == BC_TYPE_CYCLIC:
@@ -232,7 +238,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
         lc[gidx([i, j], nx, DIM) + IZ] += 1
         rhs[gidx([i, j], nx, DIM) + IZ] = 0
 
-        
+
 
     # BND x = 0
     j = 0
@@ -241,6 +247,9 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     i = np.arange(1, nx[IZ]-1)
     if bc[DIM*0 + IX] & BC_TYPE_NOSLIP:
         # vz extrapolated to be zero from two internal nodes
+        #coordGrad = (gridmp[IX][j] - grid[IX][j]) / (gridmp[IX][j+1] - gridmp[IX][j])
+        #A[gidx([i, j], nx, DIM) + IZ, gidx([i, j  ], nx, DIM) + IZ] = Kcont * (1.0 + coordGrad)
+        #A[gidx([i, j], nx, DIM) + IZ, gidx([i, j+1], nx, DIM) + IZ] = Kcont * (-coordGrad)
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j], nx, DIM) + IZ] = Kcont * (-1 / (grid[IX][j+2] - grid[IX][j]) + (-1) / (grid[IX][j+1] - grid[IX][j])) 
         A[gidx([i, j], nx, DIM) + IZ, gidx([i, j+1], nx, DIM) + IZ] = Kcont * (1 / (grid[IX][j+2] - grid[IX][j]))
         lc[gidx([i, j], nx, DIM) + IZ] += 1
@@ -302,7 +311,9 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     # vz
     i = np.arange(1, nx[IZ]-1)
     if bc[DIM*1 + IX] & BC_TYPE_NOSLIP:
-        # vz extrapolated to be zero from two internal nodes
+        ## vz interpolated to be zero from one internal and one external node
+        #A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * 0.5
+        #A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * 0.5
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-1], nx, DIM) + IZ] = Kcont * (-1 / (grid[IX][j-2] - grid[IX][j]) + (-1) / (grid[IX][j-1] - grid[IX][j]))
         A[gidx([i, j-1], nx, DIM) + IZ, gidx([i, j-2], nx, DIM) + IZ] = Kcont * (1 / (grid[IX][j-2] - grid[IX][j]))
         lc[gidx([i, j-1], nx, DIM) + IZ] += 1 
@@ -370,7 +381,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     i = np.arange(1, nx[IZ]-2)
     for j in [0, nx[IX]-2]:
         arrmask[i, j] = 3
-                
+
     idxlist = np.where(arrmask)
     i = idxlist[IZ]
     j = idxlist[IX]
@@ -398,17 +409,17 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
         lc[gidx([i, j], nx, DIM) + IP] += 1
         rhs[gidx([i, j], nx, DIM) + IP] = 0
 
-        
+
     ### rest of the points
-    
+
     # ::: z-stokes :::
-    
+
     iset = np.arange(1, nx[IZ]-1)
     jset = np.arange(1, nx[IX]-2)
     ijset = np.meshgrid(iset, jset)
     i = ijset[IZ].flatten()
     j = ijset[IX].flatten()
-    
+
     ieq = IZ
     mat_row = gidx([i, j], nx, DIM) + ieq
 
@@ -436,7 +447,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
 
     # vx_j+1_i-½
     A[mat_row, gidx([i-1, j+1], nx, DIM) + IX] = -2 * f_etas[i  , j+1] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
-            
+
     # vx_j_i+½
     A[mat_row, gidx([i  , j  ], nx, DIM) + IX] = -2 * f_etas[i  , j  ] / (grid[IZ][i+1] - grid[IZ][i-1]) / (grid[IX][j+1] - grid[IX][j])
 
@@ -457,11 +468,11 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
 
     lc[mat_row] += 1
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i, j+1]) * G[IZ] 
-                
-                
-                
+
+
+
     # ::: x-stokes :::
-    
+
     iset = np.arange(1, nx[IZ]-2)
     jset = np.arange(1, nx[IX]-1)
     ijset = np.meshgrid(iset, jset)
@@ -518,20 +529,20 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
 
     lc[mat_row] += 1
     rhs[mat_row] = -0.5 * (f_rho[i, j] + f_rho[i+1, j]) * G[IX] 
-    
-    
-    
+
+
+
     # ::: continuity :::
-    
+
     iset = np.arange(1, nx[IZ]-2)
     jset = np.arange(1, nx[IX]-2)
     ijset = np.meshgrid(iset, jset)
     i = ijset[IZ].flatten()
     j = ijset[IX].flatten()
-    
+
     ieq = IP
     mat_row = gidx([i, j], nx, DIM) + ieq
-    
+
     # vx_i-½_j
     A[mat_row, gidx([i  , j+1], nx, DIM) + IX] =  Kcont / (grid[IX][j+1] - grid[IX][j])
 
@@ -547,7 +558,7 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
     lc[mat_row] += 1
     rhs[mat_row] = 0
 
-    
+
     # one pressure point with absolute pressure value
     # define at in-/outflow boundary if one exists,
     # otherwise at i=3,j=2
@@ -575,12 +586,18 @@ def makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bc, bcvals=None, surfstab=
         else:
             raise Exception("flow bnd condition in IZ dir no implemented")
 
-    if 1 > 0 or bc_alldirichlet:
+    if bc_alldirichlet:
         mat_row = gidx([i, j], nx, DIM) + IP
         #A[mat_row, :] = 0
         A[mat_row, gidx([i, j  ], nx, DIM) + IP] += Kcont
         lc[mat_row] = 1
         rhs[mat_row] += 0
+
+        ## surf pres to zero
+        #j = np.arange(0, nx[IX])
+        #mat_row = gidx([0, j], nx, DIM) + IP
+        #A[mat_row, gidx([0, j], nx, DIM) + IP] = Kcont
+        #rhs[mat_row] = 0
 
 
   

@@ -21,6 +21,11 @@ INTERP_METHOD_NEAREST = 8
 INTERP_METHOD_LINEAR = 16   # actually, bilinear, i.e. non-linear ...
 INTERP_METHOD_VELDIV = 32
 
+STATIC_NONE = 0
+STATIC_STORE = 1
+STATIC_USE = 2
+STATIC_CLEAR = 4
+
 from pylamp_const import *
 import numpy as np
 from scipy.interpolate import griddata
@@ -32,7 +37,7 @@ this.stored_distx = None
 this.stored_distz = None
 this.stored_nearestcorner = None
 
-def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR, stopOnError=False, staticTracs=False):
+def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METHOD_LINEAR, stopOnError=False, staticTracs=STATIC_NONE):
     # Interpolate values (gridfield) from grid to tracer
     # value (tr_f). 
 
@@ -73,25 +78,34 @@ def grid2trac(tr_x, tr_f, grid, gridfield, nx, defval=np.nan, method=INTERP_METH
     distx = np.zeros((ntrac,4))
     distz = np.zeros((ntrac,4))
 
-    if not staticTracs or this.stored_nearestcorner is None:
+    if staticTracs & STATIC_CLEAR:
+        this.stored_nearestcorner = None
+        this.stored_distx = None
+        this.stored_distz = None
+
+    if not (staticTracs & STATIC_USE) or (staticTracs & STATIC_STORE) or (staticTracs & STATIC_USE and this.stored_distx is None) or (staticTracs & STATIC_USE and method & INTERP_METHOD_NEAREST and this.stored_nearestcorner is None):
         for di in [0,1]:
             for dj in [0,1]:
                 icorner = di * 2 + dj
                 distz[:,icorner] = (1-2*di) * (tr_x[:,IZ] - grid[IZ][ielem+di])
                 distx[:,icorner] = (1-2*dj) * (tr_x[:,IX] - grid[IX][jelem+dj])
 
-        if method & INTERP_METHOD_NEAREST or staticTracs:
+        if staticTracs & STATIC_STORE:
+            this.stored_distx = np.copy(distx)
+            this.stored_distz = np.copy(distz)
+
+        if method & INTERP_METHOD_NEAREST:
             disttot = distz**2 + distx**2
             nearestcorner = np.argmin(disttot, axis=1)
             nearestcorner_dj = (nearestcorner % 2).astype(int)
             nearestcorner_di = ((nearestcorner - nearestcorner_dj) / 2).astype(int)
+            if staticTracs & STATIC_STORE:
+                this.stored_nearestcorner = np.copy(nearestcorner)
+            else:
+                # clear static nearestcorner if other interp method has been used in-between
+                this.stored_nearestcorner = None
 
-        if staticTracs:
-            this.stored_distx = np.copy(distx)
-            this.stored_distz = np.copy(distz)
-            this.stored_nearestcorner = np.copy(nearestcorner)
-
-    else:
+    if staticTracs & STATIC_USE:
         distx = this.stored_distx
         distz = this.stored_distz
         nearestcorner = this.stored_nearestcorner
@@ -378,25 +392,29 @@ def RK(tr_x, grids, vels, nx, tstep, order=4):
 
         interpmethod = INTERP_METHOD_VELDIV
 
-        grid2trac(tr_x, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        #grid2trac(tr_x, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        grid2trac(tr_x, tmp, grids, vels, nx, defval=0, method=interpmethod)
         k1vel[:,IZ] = tmp[:,IZ]
         k1vel[:,IX] = tmp[:,IX]
         
         for d in range(DIM):
             k2loc[:,d] = tr_x[:,d] + 0.5 * tstep * k1vel[:,d]
-        grid2trac(k2loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        #grid2trac(k2loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        grid2trac(k2loc, tmp, grids, vels, nx, defval=0, method=interpmethod)
         k2vel[:,IZ] = tmp[:,IZ]
         k2vel[:,IX] = tmp[:,IX]
 
         for d in range(DIM):
             k3loc[:,d] = tr_x[:,d] + 0.5 * tstep * k2vel[:,d]
-        grid2trac(k3loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        #grid2trac(k3loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        grid2trac(k3loc, tmp, grids, vels, nx, defval=0, method=interpmethod)
         k3vel[:,IZ] = tmp[:,IZ]
         k3vel[:,IX] = tmp[:,IX]
 
         for d in range(DIM):
             k4loc[:,d] = tr_x[:,d] + tstep * k3vel[:,d]
-        grid2trac(k4loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        #grid2trac(k4loc, tmp, grids, vels, [nx[IZ]+1, nx[IX]+1], defval=0, method=interpmethod)
+        grid2trac(k4loc, tmp, grids, vels, nx, defval=0, method=interpmethod)
         k4vel[:,IZ] = tmp[:,IZ]
         k4vel[:,IX] = tmp[:,IX]
 

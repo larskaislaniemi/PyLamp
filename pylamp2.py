@@ -69,8 +69,11 @@ if __name__ == "__main__":
         nx    =   [31, 5]
         L     =   [30e3, 4e3]
     elif choose_model == 'stagnant lid':
-        nx    =   [34, 34]
-        L     =   [660e3, 660e3]
+        nx    =   [48+1, 72+1]
+        L     =   [660e3, 990e3]
+    elif choose_model == 'blankenbach1b':
+        nx    =   [33,33]
+        L     =   [1e6,1e6]
     else:
         raise Exception("Invalid model name '" + choose_model + "'")
 
@@ -733,7 +736,7 @@ if __name__ == "__main__":
         event_enable_times.append(60*60*24*365.25*50e6)
         event_disable_times.append(-1)
 
-    elif choose_model == 'stagnant lid':
+    elif choose_model == 'bottomheated':
         tracdens = 50
         tracdens_min = 30
         tracs_fence_enable = True
@@ -743,6 +746,76 @@ if __name__ == "__main__":
         do_heatdiff = True
         do_subgrid_heatdiff = True
         subgrid_corr_coefficient = 0.5
+
+        tstep_dif_min = 1e-15
+        tstep_dif_max = 1e15
+        tstep_adv_min = tstep_dif_min
+        tstep_adv_max = tstep_dif_max
+        tstep_modifier = 0.33
+
+        output_numpy = True
+        output_stride = 10
+        output_stride_ma = 0.01
+
+        output_outdir = 'out_bottomheated'
+
+        tdep_rho = True
+        tdep_eta = True
+        etamin = 1e17
+        etamax = 1e24
+
+        Tref = 1623
+        
+        max_it = 1e20
+        max_time = SECINMYR * 5000
+
+        surface_stabilization = False
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 
+
+        do_profiling = False
+
+        bc_internal_type = 0
+
+        ### mat defs ###
+        zmantle = tr_x[:, IZ] <= 660e3
+
+        tr_f[zmantle, TR_MAT] = 1
+        tr_f[zmantle, TR_RH0] = 3300
+        tr_f[zmantle, TR_ET0] = 1e20
+        tr_f[zmantle, TR_HCD] = 3.0
+        tr_f[zmantle, TR_HCP] = 1250
+        tr_f[zmantle, TR_ALP] = 3.5e-5
+        tr_f[zmantle, TR_ACE] = 360e3
+        tr_f[zmantle, TR_IHT] = 0.0
+
+        tr_f[zmantle, TR_TMP] = 1623
+
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 0 + 273
+        bcheatvals[DIM*1 + IZ] = 1350 + 273
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
+    elif choose_model == 'stagnant lid':
+        tracdens = 50
+        tracdens_min = 30
+        tracs_fence_enable = False
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+        do_subgrid_heatdiff = True
+        subgrid_corr_coefficient = 0.2
 
         tstep_dif_min = 1e-15
         tstep_dif_max = 1e15
@@ -775,23 +848,23 @@ if __name__ == "__main__":
         bc_internal_type = 0
 
         ### mat defs ###
-        zmantle = tr_x[:, IZ] < 660e3
+        zmantle = tr_x[:, IZ] <= 660e3
 
         tr_f[zmantle, TR_MAT] = 1
         tr_f[zmantle, TR_RH0] = 3300
-        tr_f[zmantle, TR_ET0] = 1e19
-        tr_f[zmantle, TR_HCD] = 3.0
+        tr_f[zmantle, TR_ET0] = 1e20
+        tr_f[zmantle, TR_HCD] = 5.0
         tr_f[zmantle, TR_HCP] = 1250
         tr_f[zmantle, TR_ALP] = 3.5e-5
-        tr_f[zmantle, TR_ACE] = 120e3
+        tr_f[zmantle, TR_ACE] = 360e3
         tr_f[zmantle, TR_IHT] = 0.0
 
         tr_f[zmantle, TR_TMP] = 1623
 
-        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_FREESLIP
-        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
-        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_FREESLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_NOSLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_NOSLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
         
         bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
         bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
@@ -800,6 +873,78 @@ if __name__ == "__main__":
 
         bcheatvals[DIM*0 + IZ] = 0 + 273
         bcheatvals[DIM*1 + IZ] = 1350 + 273
+        bcheatvals[DIM*0 + IX] = 0
+        bcheatvals[DIM*1 + IX] = 0
+
+    elif choose_model == 'blankenbach1b':
+        tracdens = 50
+        tracdens_min = 30
+        tracs_fence_enable = True
+
+        do_stokes = True
+        do_advect = True
+        do_heatdiff = True
+        do_subgrid_heatdiff = False
+        subgrid_corr_coefficient = 0.9
+
+        tstep_dif_min = 1e-15
+        tstep_dif_max = 1e15
+        tstep_adv_min = tstep_dif_min
+        tstep_adv_max = tstep_dif_max
+        tstep_modifier = 0.33
+
+        output_numpy = True
+        output_stride = 10
+        output_stride_ma = 0.01
+
+        output_outdir = 'out_blankenbach1b'
+
+        tdep_rho = True
+        tdep_eta = False
+        etamin = 1e17
+        etamax = 1e24
+
+        Tref = 1000 + 273
+        
+        max_it = 1e20
+        max_time = SECINMYR * 5000
+
+        surface_stabilization = False
+        surfstab_theta = 0.5
+        surfstab_tstep = -1 
+
+        do_profiling = False
+
+        bc_internal_type = 0
+
+        ### mat defs ###
+        zmantle = tr_x[:, IZ] <= 1e6
+
+        tr_f[zmantle, TR_MAT] = 1
+        tr_f[zmantle, TR_RH0] = 4000
+        tr_f[zmantle, TR_ET0] = 2.5e18
+        tr_f[zmantle, TR_HCD] = 5.0
+        tr_f[zmantle, TR_HCP] = 1250
+        tr_f[zmantle, TR_ALP] = 2.5e-5
+        tr_f[zmantle, TR_ACE] = 120e3
+        tr_f[zmantle, TR_IHT] = 0.0
+
+        idxhot = (tr_x[:, IZ] < 0.1e6) & (tr_x[:, IX] < 0.1e6)
+        tr_f[zmantle, TR_TMP] = 1000 + 273
+        tr_f[idxhot, TR_TMP] = 1100 + 273
+
+        bcstokes[DIM*0 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*1 + IZ] = pylamp_stokes.BC_TYPE_NOSLIP
+        bcstokes[DIM*0 + IX] = pylamp_stokes.BC_TYPE_NOSLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        bcstokes[DIM*1 + IX] = pylamp_stokes.BC_TYPE_NOSLIP #+ pylamp_stokes.BC_TYPE_FLOWTHRU
+        
+        bcheat[DIM*0 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*1 + IZ] = pylamp_diff.BC_TYPE_FIXTEMP
+        bcheat[DIM*0 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+        bcheat[DIM*1 + IX] = pylamp_diff.BC_TYPE_FIXFLOW
+
+        bcheatvals[DIM*0 + IZ] = 0 + 273
+        bcheatvals[DIM*1 + IZ] = 1000 + 273
         bcheatvals[DIM*0 + IX] = 0
         bcheatvals[DIM*1 + IX] = 0
 
@@ -827,9 +972,9 @@ if __name__ == "__main__":
         raise Exception("Not implemented yet. Both do_advect and do_stokes need to be either disabled or enabled.")
 
     if not do_advect:
-        staticTracs = True
+        staticTracs = pylamp_trac.STATIC_USE
     else:
-        staticTracs = False
+        staticTracs = pylamp_trac.STATIC_NONE
 
     #############################################
     ### PREPS DONE, START THE MAIN TIME LOOP  ###
@@ -898,7 +1043,7 @@ if __name__ == "__main__":
 
         elif do_heatdiff:
             if it == 1 or tdep_rho or force_trac2grid_T:
-                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_HCP, TR_TMP, TR_MAT]], mesh, grid, [f_rho, f_Cp, f_T, f_mat], nx, 
+                pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_RHO, TR_HCP, TR_TMP, TR_MAT]], mesh, grid, [f_rho, f_Cp, f_T, f_mat], nx,
                         avgscheme=[pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW, pylamp_trac.INTERP_AVG_ARITHW])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [meshmp[IZ], mesh[IX]], [gridmp[IZ], grid[IX]], [f_k[IZ]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
                 pylamp_trac.trac2grid(tr_x, tr_f[:,[TR_HCD]], [mesh[IZ], meshmp[IX]], [grid[IZ], gridmp[IX]], [f_k[IX]], nx, avgscheme=[pylamp_trac.INTERP_AVG_ARITHW])
@@ -913,6 +1058,7 @@ if __name__ == "__main__":
             f_T[:, -1] = newtemp[:, -1]
             f_T[0, :] = newtemp[0, :]
             f_T[-1, :] = newtemp[-1, :]
+            pass
 
         if bc_internal_type > 0:
             if bc_internal_type == 1:
@@ -934,9 +1080,9 @@ if __name__ == "__main__":
             pprint("Build stokes")
 
             if surface_stabilization == False or surfstab_tstep < 0:
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=False, bcvals=bcstokesvals)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, gridmp, f_etas, f_etan, f_rho, bcstokes, surfstab=False, bcvals=bcstokesvals)
             else:
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=surfstab_tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, gridmp, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=surfstab_tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
 
             pprint("Solve stokes")
             # Solve it!
@@ -974,7 +1120,7 @@ if __name__ == "__main__":
             stabRedoDone = False
             while not stabRedoDone:
                 pprint ("Redo stokes with surface stabilization")
-                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
+                (A, rhs) = pylamp_stokes.makeStokesMatrix(nx, grid, gridmp, f_etas, f_etan, f_rho, bcstokes, surfstab=True, tstep=tstep, surfstab_theta=surfstab_theta, bcvals=bcstokesvals)
 
                 pprint ("Resolve stokes")
                 x = scipy.sparse.linalg.spsolve(scipy.sparse.csc_matrix(A), rhs)
@@ -1023,19 +1169,24 @@ if __name__ == "__main__":
 
             l_interp_tracvals = np.zeros((tr_f.shape[0], 1))
 
+#            print(" === BEFORE === ")
+#            print(f_T[0,:])
+#            print(newtemp[0,:])
+#            print((newtemp - f_T)[0,:])
+#            print(tr_f[tr_x[:, IZ] < 1e3, TR_TMP])
             if it == 1:
                 # On first timestep interpolate absolute temperature values to tracers ...
                 # Also, assume that all tracers are within the domain at this point
                 pprint("grid2trac T")
-                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+                pylamp_trac.grid2trac(tr_x, l_interp_tracvals, grid, [newtemp], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
                 tr_f[:, TR_TMP] = l_interp_tracvals[:, 0]
             else:
                 # ... on subsequent timesteps interpolate only the change to avoid numerical diffusion
                 # (and exclude those that are outside the domain)
                 pprint("grid2trac dT")
                 newdT = newtemp - f_T
-                ##pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
-                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_NEAREST, stopOnError=True, staticTracs=staticTracs)
+                pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_LINEAR, stopOnError=True, staticTracs=staticTracs)
+                ##pylamp_trac.grid2trac(tr_x[:], l_interp_tracvals[:], grid, [newdT], nx, method=pylamp_trac.INTERP_METHOD_NEAREST, stopOnError=True, staticTracs=staticTracs)
                 tr_f[:, TR_TMP] = tr_f[:, TR_TMP] + l_interp_tracvals[:, 0]
 
                 #if bc_internal_type == 1:
@@ -1092,6 +1243,9 @@ if __name__ == "__main__":
                     #print("dT_rem_tr: ", dT_rem_tr)
                     tr_f[:, TR_TMP] = tr_f[:,TR_TMP] + dT_subg_tr + dT_rem_tr
 
+#            print(" === AFTER === ")
+#            print(tr_f[tr_x[:, IZ] < 1e3, TR_TMP])
+
             # end of heat diffusion 
 
         if do_advect:
@@ -1104,14 +1258,26 @@ if __name__ == "__main__":
             velsmp = [[]] * DIM
             velsmp[IZ] = 0.5 * (newvel[IZ][1:,:-1] + newvel[IZ][:-1,:-1])
             velsmp[IX] = 0.5 * (newvel[IX][:-1,1:] + newvel[IX][:-1,:-1])
-            preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
-            newgridx = np.insert(gridmp[IX], 0, preval[IX])
-            newgridz = np.insert(gridmp[IZ], 0, preval[IZ])
 
-            vels = [ \
-                    np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IZ], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] )), \
-                    np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IX], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] ))  \
-                   ]
+            preval = [gridmp[d][0] - 2.0*(gridmp[d][0] - grid[d][0]) for d in range(DIM)]
+
+            newgrid = [np.concatenate(( [preval[d]], gridmp[d][:] )) for d in range(DIM)]
+            newnx = [newgrid[d].shape[0] for d in range(DIM)]
+            #preval = [gridmp[d][0] - (gridmp[d][1] - gridmp[d][0]) for d in range(DIM)]
+            #newgrid = [np.insert(gridmp[d], 0, preval[d]) for d in range(DIM)]
+            #newgridx = np.insert(gridmp[IX], 0, preval[IX]) 
+            #newgridz = np.insert(gridmp[IZ], 0, preval[IZ])
+
+            vels = [np.zeros(newnx) for d in range(DIM)]
+            #vels = [np.zeros_like(newvel[d]) for d in range(DIM)]
+
+            vels[IZ][1:-1,1:-1] = velsmp[IZ][:,:]
+            vels[IX][1:-1,1:-1] = velsmp[IX][:,:]
+
+            #vels = [ \
+            #        np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IZ], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] )), \
+            #        np.hstack(( np.zeros(nx[IZ]+1)[:,None], np.vstack((np.zeros(nx[IX]-1)[None,:], velsmp[IX], np.zeros(nx[IX]-1)[None,:])), np.zeros(nx[IZ]+1)[:,None] ))  \
+            #       ]
 
             if bcstokes[DIM*0 + IZ] & pylamp_stokes.BC_TYPE_NOSLIP:
                 vels[IX][0,:] = -vels[IX][1,:]  # i.e. vel is zero at bnd
@@ -1157,7 +1323,8 @@ if __name__ == "__main__":
             if bcstokes[DIM*1 + IX] & pylamp_stokes.BC_TYPE_FLOWTHRU:
                 vels[IX][:,-1] = vels[IX][:,-2]
 
-            trac_vel, tr_x = pylamp_trac.RK(tr_x[:,:], [newgridz, newgridx], vels, nx, tstep)
+            #trac_vel, tr_x = pylamp_trac.RK(tr_x[:,:], [newgridz, newgridx], vels, nx, tstep)
+            trac_vel, tr_x = pylamp_trac.RK(tr_x, newgrid, vels, newnx, tstep)
 
             # do not allow tracers to advect outside the domain
             for d in range(DIM):

@@ -9,8 +9,8 @@ from scipy.sparse import lil_matrix
 import numpy as np
 import sys
 
-BC_TYPE_FIXTEMP = 0
-BC_TYPE_FIXFLOW = 1
+BC_TYPE_FIXTEMP = 1
+BC_TYPE_FIXFLOW = 2
 
 def gidx(idxs, nx):
     # Global index for the matrix in linear system of equations
